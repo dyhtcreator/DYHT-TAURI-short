@@ -52,6 +52,8 @@ const TechyWaveform = ({ width = 220, height = 60 }) => (
 export default function CoolDashboardMockup() {
   const [selectedTrigger, setSelectedTrigger] = useState("");
   const [customPhrase, setCustomPhrase] = useState("");
+  const [systemStatus, setSystemStatus] = useState("Active");
+  const [demoCounter, setDemoCounter] = useState(0);
 
   return (
     <div
@@ -78,6 +80,51 @@ export default function CoolDashboardMockup() {
       >
         Dwight Tauri Dashboard
       </h1>
+
+      {/* Status Indicator */}
+      <div
+        style={{
+          textAlign: "center",
+          marginTop: "16px",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: "12px",
+        }}
+      >
+        <div
+          style={{
+            width: "12px",
+            height: "12px",
+            borderRadius: "50%",
+            backgroundColor: systemStatus === "Active" ? "#00FF88" : "#FF4444",
+            boxShadow: `0 0 12px ${systemStatus === "Active" ? "#00FF88" : "#FF4444"}`,
+          }}
+        />
+        <span
+          style={{
+            color: "#38B6FF",
+            fontWeight: "600",
+            fontSize: "1.1rem",
+          }}
+        >
+          System Status: {systemStatus}
+        </span>
+        <button
+          onClick={() => setSystemStatus(systemStatus === "Active" ? "Inactive" : "Active")}
+          style={{
+            background: "transparent",
+            color: "#38B6FF",
+            border: "1px solid #38B6FF",
+            borderRadius: "4px",
+            padding: "4px 8px",
+            fontSize: "0.9rem",
+            cursor: "pointer",
+          }}
+        >
+          Toggle
+        </button>
+      </div>
 
       <div
         style={{
@@ -177,6 +224,25 @@ export default function CoolDashboardMockup() {
           >
             Manual Trigger
           </button>
+
+          {/* Demo Change Button */}
+          <button
+            onClick={() => setDemoCounter(demoCounter + 1)}
+            style={{
+              background: "#FF6B35",
+              color: "#fff",
+              border: "none",
+              borderRadius: "8px",
+              padding: "8px 16px",
+              fontWeight: "bold",
+              fontSize: "1rem",
+              marginBottom: "18px",
+              cursor: "pointer",
+              boxShadow: "0 2px 8px #0007",
+            }}
+          >
+            Demo Change (Clicked: {demoCounter})
+          </button>
           <div style={{ marginBottom: "22px", width: "100%" }}>
             <span style={{ color: "#38B6FF", fontWeight: "bold", marginRight: "10px" }}>
               Sound Triggers:
@@ -251,7 +317,21 @@ export default function CoolDashboardMockup() {
               minHeight: "90px",
             }}
           >
-            No transcripts yet.
+            {demoCounter > 0 ? (
+              <div>
+                <div style={{ fontSize: "0.9rem", opacity: 0.8, marginBottom: "8px" }}>
+                  Recent Activity:
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  • Demo button clicked {demoCounter} time{demoCounter !== 1 ? 's' : ''}
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>
+                  • System status: {systemStatus}
+                </div>
+              </div>
+            ) : (
+              "No transcripts yet."
+            )}
           </div>
         </div>
       </div>

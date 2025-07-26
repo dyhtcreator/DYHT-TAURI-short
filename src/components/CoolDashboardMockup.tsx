@@ -1,4 +1,61 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { autoSaveSetting, getSetting, getTranscripts } from "../db";
+import type { Transcript } from "../db/schema";
+
+// Mini component for showing recent transcripts in dashboard
+function TranscriptHistoryMini() {
+  const [recentTranscripts, setRecentTranscripts] = useState<Transcript[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadRecentTranscripts = async () => {
+      try {
+        const transcripts = await getTranscripts();
+        setRecentTranscripts(transcripts.slice(0, 3)); // Show only latest 3
+      } catch (error) {
+        console.error("Failed to load recent transcripts:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadRecentTranscripts();
+    
+    // Auto-refresh every 3 seconds
+    const interval = setInterval(loadRecentTranscripts, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) {
+    return <p style={{ color: "#38B6FF", fontSize: "0.9em" }}>Loading...</p>;
+  }
+
+  if (recentTranscripts.length === 0) {
+    return <p style={{ color: "#38B6FF", fontSize: "0.9em" }}>No transcripts yet.</p>;
+  }
+
+  return (
+    <div style={{ fontSize: "0.8em" }}>
+      {recentTranscripts.map((transcript) => (
+        <div key={transcript.id} style={{ marginBottom: "8px", borderBottom: "1px solid #333", paddingBottom: "6px" }}>
+          <div style={{ color: "#666", fontSize: "0.8em", marginBottom: "2px" }}>
+            {new Date(transcript.timestamp).toLocaleTimeString()}
+          </div>
+          <div style={{ color: "#38B6FF" }}>
+            {transcript.content.length > 60 
+              ? transcript.content.substring(0, 60) + "..." 
+              : transcript.content}
+          </div>
+        </div>
+      ))}
+      {recentTranscripts.length > 0 && (
+        <div style={{ color: "#666", fontSize: "0.7em", marginTop: "6px" }}>
+          Showing {recentTranscripts.length} most recent
+        </div>
+      )}
+    </div>
+  );
+}
 
 // SVG Bat Logo (blue accent)
 const BatLogo = ({ size = 64 }) => (
@@ -52,6 +109,78 @@ const TechyWaveform = ({ width = 220, height = 60 }) => (
 export default function CoolDashboardMockup() {
   const [selectedTrigger, setSelectedTrigger] = useState("");
   const [customPhrase, setCustomPhrase] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // Load saved settings on component mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const trigger = await getSetting("selectedTrigger");
+        const phrase = await getSetting("customPhrase");
+        
+        if (trigger) setSelectedTrigger(trigger.value);
+        if (phrase) setCustomPhrase(phrase.value);
+      } catch (error) {
+        console.error("Failed to load settings:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSettings();
+  }, []);
+
+  // AUTO-SAVE: Save trigger selection immediately when changed
+  const handleTriggerChange = async (value: string) => {
+    setSelectedTrigger(value);
+    try {
+      await autoSaveSetting("selectedTrigger", value);
+    } catch (error) {
+      console.error("Failed to auto-save trigger selection:", error);
+    }
+  };
+
+  // AUTO-SAVE: Save custom phrase immediately when changed
+  const handlePhraseChange = async (value: string) => {
+    setCustomPhrase(value);
+    try {
+      await autoSaveSetting("customPhrase", value);
+    } catch (error) {
+      console.error("Failed to auto-save custom phrase:", error);
+    }
+  };
+
+  const handleSetTrigger = async () => {
+    if (!customPhrase.trim()) return;
+    
+    try {
+      // AUTO-SAVE: Save the trigger as an active vocal trigger
+      await autoSaveSetting("activeTriggerPhrase", customPhrase);
+      console.log(`Set vocal trigger: "${customPhrase}"`);
+    } catch (error) {
+      console.error("Failed to save trigger phrase:", error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{
+        background: "linear-gradient(135deg, #232526 0%, #0f2027 100%)",
+        minHeight: "100vh",
+        color: "#eee",
+        fontFamily: "Montserrat, Arial, sans-serif",
+        padding: "36px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }}>
+        <div style={{ textAlign: "center" }}>
+          <BatLogo size={128} />
+          <p style={{ color: "#38B6FF", marginTop: "20px" }}>Loading saved settings...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -191,7 +320,7 @@ export default function CoolDashboardMockup() {
                 fontSize: "1rem",
               }}
               value={selectedTrigger}
-              onChange={(e) => setSelectedTrigger(e.target.value)}
+              onChange={(e) => handleTriggerChange(e.target.value)}
             >
               <option value="">Pick a sound...</option>
               <option value="baby">Baby Crying</option>
@@ -218,7 +347,7 @@ export default function CoolDashboardMockup() {
                 marginRight: "10px",
               }}
               value={customPhrase}
-              onChange={(e) => setCustomPhrase(e.target.value)}
+              onChange={(e) => handlePhraseChange(e.target.value)}
             />
             <button
               style={{
@@ -231,6 +360,7 @@ export default function CoolDashboardMockup() {
                 cursor: "pointer",
                 boxShadow: "0 2px 8px #0007",
               }}
+              onClick={handleSetTrigger}
             >
               Set Trigger
             </button>
@@ -239,7 +369,12 @@ export default function CoolDashboardMockup() {
 
         {/* Transcript History */}
         <div style={{ flex: 1 }}>
-          <h2 style={{ color: "#38B6FF", marginBottom: "8px" }}>Transcript History</h2>
+          <h2 style={{ color: "#38B6FF", marginBottom: "8px" }}>
+            Transcript History 
+            <small style={{ color: "#666", fontSize: "0.8em", marginLeft: "8px" }}>
+              (Auto-saved)
+            </small>
+          </h2>
           <div
             style={{
               background: "#191919",
@@ -249,9 +384,11 @@ export default function CoolDashboardMockup() {
               boxShadow: "0 2px 8px #0008",
               color: "#38B6FF",
               minHeight: "90px",
+              maxHeight: "200px",
+              overflow: "auto",
             }}
           >
-            No transcripts yet.
+            <TranscriptHistoryMini />
           </div>
         </div>
       </div>

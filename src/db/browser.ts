@@ -1,38 +1,40 @@
-// Simple browser-based storage for autosave functionality
-import type { Transcript, NewTranscript, Setting, NewSetting } from "./schema";
+// Browser-compatible storage that falls back to localStorage when SQLite is not available
+import type { Transcript, Setting, AudioTrigger } from "./schema";
 
-// Browser storage using localStorage
-class AutoSaveStorage {
+// Check if we're in a browser environment
+const isBrowser = typeof window !== 'undefined';
+
+// Fallback storage using localStorage
+class BrowserStorage {
   private getStorageKey(key: string): string {
     return `dwight-tauri-${key}`;
   }
 
-  private getFromStorage<T>(key: string, defaultValue: T[] = []): T[] {
+  private getFromStorage<T>(key: string): T[] {
+    if (!isBrowser) return [];
     try {
       const stored = localStorage.getItem(this.getStorageKey(key));
-      return stored ? JSON.parse(stored) : defaultValue;
+      return stored ? JSON.parse(stored) : [];
     } catch {
-      return defaultValue;
+      return [];
     }
   }
 
   private saveToStorage<T>(key: string, data: T[]): void {
+    if (!isBrowser) return;
     try {
       localStorage.setItem(this.getStorageKey(key), JSON.stringify(data));
-      console.log(`✓ Auto-saved ${key} to browser storage`);
     } catch (error) {
       console.error(`Failed to save ${key} to localStorage:`, error);
     }
   }
 
   // Transcript operations
-  async addTranscript(transcript: NewTranscript): Promise<Transcript> {
+  async addTranscript(transcript: Omit<Transcript, 'id'>): Promise<Transcript> {
     const transcripts = this.getFromStorage<Transcript>('transcripts');
     const newTranscript: Transcript = {
       ...transcript,
       id: Date.now(), // Simple ID generation
-      createdAt: transcript.createdAt || new Date().toISOString(),
-      timestamp: transcript.timestamp || new Date().toISOString(),
     };
     transcripts.unshift(newTranscript);
     this.saveToStorage('transcripts', transcripts);
@@ -75,11 +77,11 @@ class AutoSaveStorage {
   }
 }
 
-const storage = new AutoSaveStorage();
+export const browserStorage = new BrowserStorage();
 
-// Auto-save functions
+// Auto-save functions that work in browser environment
 export async function autoSaveTranscript(content: string, filePath?: string, duration?: number): Promise<Transcript> {
-  const transcript: NewTranscript = {
+  const transcript = {
     content,
     filePath,
     duration,
@@ -88,7 +90,7 @@ export async function autoSaveTranscript(content: string, filePath?: string, dur
   };
   
   try {
-    const result = await storage.addTranscript(transcript);
+    const result = await browserStorage.addTranscript(transcript);
     console.log("Auto-saved transcript:", result.id);
     return result;
   } catch (error) {
@@ -99,7 +101,7 @@ export async function autoSaveTranscript(content: string, filePath?: string, dur
 
 export async function autoSaveSetting(key: string, value: string): Promise<void> {
   try {
-    await storage.setSetting(key, value);
+    await browserStorage.setSetting(key, value);
     console.log(`Auto-saved setting: ${key} = ${value}`);
   } catch (error) {
     console.error(`Failed to auto-save setting ${key}:`, error);
@@ -107,15 +109,9 @@ export async function autoSaveSetting(key: string, value: string): Promise<void>
   }
 }
 
-// Export the main storage functions
-export const getTranscripts = () => storage.getTranscripts();
-export const getSetting = (key: string) => storage.getSetting(key);
-export const getAllSettings = () => storage.getAllSettings();
-export const addTranscript = (transcript: NewTranscript) => storage.addTranscript(transcript);
-export const setSetting = (key: string, value: string) => storage.setSetting(key, value);
-
-// Legacy compatibility
-export function getTranscripts_legacy(): string[] {
-  console.warn("getTranscripts_legacy is deprecated, use getTranscripts() instead");
-  return [];
-}
+// Export the storage functions
+export const getTranscripts = () => browserStorage.getTranscripts();
+export const getSetting = (key: string) => browserStorage.getSetting(key);
+export const getAllSettings = () => browserStorage.getAllSettings();
+export const addTranscript = (transcript: Omit<Transcript, 'id'>) => browserStorage.addTranscript(transcript);
+export const setSetting = (key: string, value: string) => browserStorage.setSetting(key, value);

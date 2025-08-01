@@ -1,4 +1,7 @@
 import React, { useState } from "react";
+import { useAudioBuffer } from "../hooks/useAudioBuffer";
+import LinearWaveform from "./Waveform";
+import CircularWaveform from "./CircularWaveform";
 
 // SVG Bat Logo (blue accent)
 const BatLogo = ({ size = 64 }) => (
@@ -19,39 +22,38 @@ const BatLogo = ({ size = 64 }) => (
   </svg>
 );
 
-// SVG Techy Waveform (blue accent)
-const TechyWaveform = ({ width = 220, height = 60 }) => (
-  <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-    <rect x="0" y="0" width={width} height={height} fill="#191919" rx="8" />
-    {/* Example waveform bars */}
-    {[8, 24, 36, 52, 68, 80, 92, 104, 120, 136, 148, 164, 180, 196, 208].map((x, i) => (
-      <rect
-        key={i}
-        x={x}
-        y={height / 2 - (i % 2 === 0 ? 18 : 32)}
-        width="8"
-        height={i % 2 === 0 ? 36 : 18}
-        rx="2"
-        fill="#38B6FF"
-        opacity={0.7}
-      />
-    ))}
-    {/* "Live" line */}
-    <rect
-      x={width - 12}
-      y={height / 2 - 24}
-      width="4"
-      height="48"
-      rx="2"
-      fill="#38B6FF"
-      opacity={1}
-    />
-  </svg>
-);
-
 export default function CoolDashboardMockup() {
   const [selectedTrigger, setSelectedTrigger] = useState("");
   const [customPhrase, setCustomPhrase] = useState("");
+  const [manualTriggerActive, setManualTriggerActive] = useState(false);
+  const [transcripts, setTranscripts] = useState<string[]>([]);
+  const [waveformType, setWaveformType] = useState<'linear' | 'circular'>('linear');
+  
+  const { audioData, isRecording, startRecording, stopRecording } = useAudioBuffer();
+
+  const handleManualTrigger = () => {
+    setManualTriggerActive(true);
+    const timestamp = new Date().toLocaleTimeString();
+    setTranscripts(prev => [...prev, `Manual trigger activated at ${timestamp}`]);
+    
+    // Reset after 2 seconds
+    setTimeout(() => setManualTriggerActive(false), 2000);
+  };
+
+  const handleSetTrigger = () => {
+    if (customPhrase.trim()) {
+      const timestamp = new Date().toLocaleTimeString();
+      setTranscripts(prev => [...prev, `Trigger phrase set: "${customPhrase}" at ${timestamp}`]);
+    }
+  };
+
+  const handleSoundTriggerChange = (value: string) => {
+    setSelectedTrigger(value);
+    if (value) {
+      const timestamp = new Date().toLocaleTimeString();
+      setTranscripts(prev => [...prev, `Sound trigger activated: ${value} at ${timestamp}`]);
+    }
+  };
 
   return (
     <div
@@ -91,10 +93,11 @@ export default function CoolDashboardMockup() {
         <div style={{ flex: 1 }}>
           <h2 style={{ color: "#38B6FF", marginBottom: "8px" }}>Audio Input Panel</h2>
           <button
+            onClick={isRecording ? stopRecording : startRecording}
             style={{
-              background: "#222",
-              color: "#38B6FF",
-              border: "2px solid #38B6FF",
+              background: isRecording ? "#ff4444" : "#222",
+              color: isRecording ? "#fff" : "#38B6FF",
+              border: `2px solid ${isRecording ? "#ff4444" : "#38B6FF"}`,
               borderRadius: "8px",
               padding: "8px 18px",
               fontWeight: "bold",
@@ -103,8 +106,27 @@ export default function CoolDashboardMockup() {
               marginBottom: "20px",
             }}
           >
-            Start Recording
+            {isRecording ? "Stop Recording" : "Start Recording"}
           </button>
+          
+          <div style={{ marginBottom: "16px" }}>
+            <button
+              onClick={() => setWaveformType(waveformType === 'linear' ? 'circular' : 'linear')}
+              style={{
+                background: "#333",
+                color: "#38B6FF",
+                border: "1px solid #38B6FF",
+                borderRadius: "6px",
+                padding: "4px 12px",
+                fontSize: "0.9rem",
+                cursor: "pointer",
+                marginBottom: "8px"
+              }}
+            >
+              Switch to {waveformType === 'linear' ? 'Circular' : 'Linear'} Waveform
+            </button>
+          </div>
+          
           <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
             <div
               style={{
@@ -121,23 +143,28 @@ export default function CoolDashboardMockup() {
                 boxShadow: "0 2px 8px #0008",
               }}
             >
-              Recorder
+              {isRecording ? "🔴 REC" : "Recorder"}
             </div>
             <div
               style={{
                 background: "#191919",
                 border: "1.5px solid #38B6FF",
                 borderRadius: "10px",
-                width: "130px",
+                width: waveformType === 'circular' ? "130px" : "250px",
                 height: "90px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 boxShadow: "0 2px 8px #0008",
                 overflow: "hidden",
+                padding: "8px"
               }}
             >
-              <TechyWaveform width={120} height={60} />
+              {waveformType === 'linear' ? (
+                <LinearWaveform audioData={audioData} width={220} height={60} />
+              ) : (
+                <CircularWaveform audioData={audioData} size={80} />
+              )}
             </div>
           </div>
         </div>
@@ -162,8 +189,9 @@ export default function CoolDashboardMockup() {
             Trigger Control Panel
           </h2>
           <button
+            onClick={handleManualTrigger}
             style={{
-              background: "#38B6FF",
+              background: manualTriggerActive ? "#ff6b00" : "#38B6FF",
               color: "#222",
               border: "none",
               borderRadius: "10px",
@@ -173,9 +201,11 @@ export default function CoolDashboardMockup() {
               marginBottom: "22px",
               cursor: "pointer",
               boxShadow: "0 2px 8px #0007",
+              transform: manualTriggerActive ? "scale(1.05)" : "scale(1)",
+              transition: "all 0.2s ease"
             }}
           >
-            Manual Trigger
+            {manualTriggerActive ? "TRIGGERED!" : "Manual Trigger"}
           </button>
           <div style={{ marginBottom: "22px", width: "100%" }}>
             <span style={{ color: "#38B6FF", fontWeight: "bold", marginRight: "10px" }}>
@@ -191,7 +221,7 @@ export default function CoolDashboardMockup() {
                 fontSize: "1rem",
               }}
               value={selectedTrigger}
-              onChange={(e) => setSelectedTrigger(e.target.value)}
+              onChange={(e) => handleSoundTriggerChange(e.target.value)}
             >
               <option value="">Pick a sound...</option>
               <option value="baby">Baby Crying</option>
@@ -221,6 +251,7 @@ export default function CoolDashboardMockup() {
               onChange={(e) => setCustomPhrase(e.target.value)}
             />
             <button
+              onClick={handleSetTrigger}
               style={{
                 background: "#38B6FF",
                 color: "#222",
@@ -248,10 +279,20 @@ export default function CoolDashboardMockup() {
               padding: "18px",
               boxShadow: "0 2px 8px #0008",
               color: "#38B6FF",
-              minHeight: "90px",
+              minHeight: "200px",
+              maxHeight: "300px",
+              overflowY: "auto"
             }}
           >
-            No transcripts yet.
+            {transcripts.length === 0 ? (
+              "No transcripts yet."
+            ) : (
+              transcripts.map((transcript, index) => (
+                <div key={index} style={{ marginBottom: "8px", fontSize: "0.9rem" }}>
+                  {transcript}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -275,7 +316,10 @@ export default function CoolDashboardMockup() {
             flex: 1,
           }}
         >
-          <h3 style={{ color: "#38B6FF" }}>Transcript</h3>
+          <h3 style={{ color: "#38B6FF" }}>Live Transcript</h3>
+          <div style={{ color: "#ccc", fontSize: "0.9rem", minHeight: "60px" }}>
+            {isRecording ? "Listening for audio..." : "Start recording to see transcript"}
+          </div>
         </div>
         <div
           style={{
@@ -290,6 +334,7 @@ export default function CoolDashboardMockup() {
           <h3 style={{ color: "#38B6FF" }}>Transcription Panel</h3>
           <input
             type="file"
+            accept="audio/*"
             style={{
               marginTop: "8px",
               marginRight: "12px",
@@ -302,17 +347,17 @@ export default function CoolDashboardMockup() {
           />
           <button
             style={{
-              background: "#38B6FF",
-              color: "#191919",
+              background: isRecording ? "#38B6FF" : "#666",
+              color: isRecording ? "#191919" : "#ccc",
               border: "none",
               borderRadius: "6px",
               padding: "8px 16px",
               fontWeight: "bold",
               marginLeft: "10px",
-              cursor: "pointer",
+              cursor: isRecording ? "pointer" : "not-allowed",
               boxShadow: "0 2px 8px #0007",
             }}
-            disabled
+            disabled={!isRecording}
           >
             Transcribe
           </button>

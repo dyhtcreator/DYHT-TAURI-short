@@ -1,6 +1,6 @@
 import React from "react";
-import CoolDashboardMockup from "./components/CoolDashboardMockup";
+import UserPreferredMockup from "./components/UserPreferredMockup";
 
 export default function App() {
-  return <CoolDashboardMockup />;
+  return <UserPreferredMockup />;
 }

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import ImageDescriptionPanel from "./ImageDescriptionPanel";
 
 // SVG Bat Logo (blue accent)
 const BatLogo = ({ size = 64 }) => (
@@ -256,7 +257,7 @@ export default function CoolDashboardMockup() {
         </div>
       </div>
 
-      {/* Transcript + Transcription Panel - moved below main row */}
+      {/* Transcript + Transcription Panel + Image Description - moved below main row */}
       <div
         style={{
           display: "flex",
@@ -284,7 +285,7 @@ export default function CoolDashboardMockup() {
             borderRadius: "12px",
             padding: "18px",
             boxShadow: "0 2px 8px #0008",
-            flex: 2,
+            flex: 1,
           }}
         >
           <h3 style={{ color: "#38B6FF" }}>Transcription Panel</h3>
@@ -316,6 +317,9 @@ export default function CoolDashboardMockup() {
           >
             Transcribe
           </button>
+        </div>
+        <div style={{ flex: 1 }}>
+          <ImageDescriptionPanel />
         </div>
       </div>
 

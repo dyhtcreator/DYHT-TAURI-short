@@ -6,10 +6,14 @@
   "author": "Kelly Garnett",
   "scripts": {
     "dev": "vite --host",
+    "start": "npm run tauri:dev",
     "tauri:dev": "tauri dev",
     "build": "vite build",
     "tauri:build": "tauri build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "install-deps": "npm install && cd src-tauri && cargo fetch",
+    "clean": "rm -rf dist && rm -rf src-tauri/target",
+    "setup": "npm run install-deps && npm run build"
   },
   "dependencies": {
     "@tauri-apps/api": "^1.5.4",

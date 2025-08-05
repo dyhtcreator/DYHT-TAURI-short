@@ -7,6 +7,7 @@ use tauri::{Manager, WindowEvent};
 use std::sync::Arc;
 
 mod whisper;
+mod vision;
 
 fn main() {
     tauri::Builder::default()
@@ -15,7 +16,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            whisper::transcribe_audio
+            whisper::transcribe_audio,
+            vision::describe_image
         ])
         .on_window_event(|event| {
             if let WindowEvent::CloseRequested { .. } = event.event() {

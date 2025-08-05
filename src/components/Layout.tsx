@@ -13,7 +13,7 @@ export default function Layout() {
       <div style={{ display: "flex", gap: 24 }}>
         <AudioinputPanel />
         <Recorder />
-        <Waveform />
+        <Waveform audioData={null} />
       </div>
       <div style={{ marginTop: 24, display: "flex", gap: 24 }}>
         <Transcript />

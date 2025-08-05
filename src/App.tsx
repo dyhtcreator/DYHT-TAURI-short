@@ -1,6 +1,6 @@
 import React from "react";
-import CoolDashboardMockup from "./components/CoolDashboardMockup";
+import DwightAudioDashboard from "./components/DwightAudioDashboard";
 
 export default function App() {
-  return <CoolDashboardMockup />;
+  return <DwightAudioDashboard />;
 }

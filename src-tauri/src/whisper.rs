@@ -17,11 +17,11 @@ pub async fn transcribe_audio(file_path: String) -> Result<String, String> {
     
     // Simulate different types of audio content based on filename or other heuristics
     let transcript = if file_name.to_lowercase().contains("conversation") {
-        "Speaker 1: Hello, how are you today?\nSpeaker 2: I'm doing well, thanks for asking. How about you?\nSpeaker 1: Pretty good, just working on some audio analysis projects.\nSpeaker 2: That sounds interesting. What kind of analysis are you doing?"
+        "Speaker 1: Hello, how are you today?\nSpeaker 2: I'm doing well, thanks for asking. How about you?\nSpeaker 1: Pretty good, just working on some audio analysis projects.\nSpeaker 2: That sounds interesting. What kind of analysis are you doing?".to_string()
     } else if file_name.to_lowercase().contains("security") || file_name.to_lowercase().contains("surveillance") {
-        "Timestamp 00:14 - Footsteps approaching from the north entrance.\nTimestamp 00:22 - Car door slam, vehicle engine starting.\nTimestamp 00:49 - Multiple loud sounds, possible security concern.\nTimestamp 01:15 - Radio chatter: 'All clear, proceeding to checkpoint.'"
+        "Timestamp 00:14 - Footsteps approaching from the north entrance.\nTimestamp 00:22 - Car door slam, vehicle engine starting.\nTimestamp 00:49 - Multiple loud sounds, possible security concern.\nTimestamp 01:15 - Radio chatter: 'All clear, proceeding to checkpoint.'".to_string()
     } else if file_name.to_lowercase().contains("meeting") {
-        "Meeting attendees discussing project timeline. Key points: Budget approval needed by Friday, timeline extended by two weeks, team coordination improved."
+        "Meeting attendees discussing project timeline. Key points: Budget approval needed by Friday, timeline extended by two weeks, team coordination improved.".to_string()
     } else {
         // Default transcription
         format!("Audio transcription for file: {}\n\nDetected speech patterns and content analysis in progress...\nThis is a sample transcription showing Dwight's AI capabilities.\nReal implementation would use advanced speech recognition models.", file_name)
@@ -30,7 +30,7 @@ pub async fn transcribe_audio(file_path: String) -> Result<String, String> {
     // Simulate processing time
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
     
-    Ok(transcript.to_string())
+    Ok(transcript)
 }
 
 #[command]

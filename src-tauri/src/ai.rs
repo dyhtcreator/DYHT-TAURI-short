@@ -60,7 +60,7 @@ impl DwightAI {
     pub fn generate_response(&self, user_input: &str, context: &[DwightMemory]) -> DwightResponse {
         let input_lower = user_input.to_lowercase();
         let mut response_parts = Vec::new();
-        let mut confidence = 0.5;
+        let mut confidence: f32 = 0.5;
         let mut suggestions = Vec::new();
 
         // Analyze user input for keywords
@@ -186,7 +186,7 @@ pub async fn chat_with_dwight(
     app_handle: tauri::AppHandle,
 ) -> Result<DwightResponse, String> {
     let config = app_handle.config();
-    let db = Database::new(config).map_err(|e| format!("Database error: {}", e))?;
+    let db = Database::new(&config).map_err(|e| format!("Database error: {}", e))?;
     
     // Get recent conversation context
     let context = db.get_dwight_memory_context(10).map_err(|e| format!("Database error: {}", e))?;

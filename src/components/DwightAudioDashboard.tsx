@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
+import AudioTrimmer from "./AudioTrimmer";
 import { 
   chatWithDwight, 
   transcribeAudio, 
@@ -261,6 +262,10 @@ export default function DwightAudioDashboard() {
   const [paused, setPaused] = useState(false);
   const [buffer, setBuffer] = useState(30);
   
+  // Trimmer state
+  const [showTrimmer, setShowTrimmer] = useState(false);
+  const [trimmedAudioUrl, setTrimmedAudioUrl] = useState<string | null>(null);
+  
   // Dwight AI
   const [dwightMessages, setDwightMessages] = useState([
     { sender: "dwight", text: "How can I help you with your audio file?", time: "19:02" },
@@ -458,7 +463,8 @@ export default function DwightAudioDashboard() {
 
   // Handle audio transcription
   const handleTranscription = async () => {
-    if (audioRecorder.audioUrl) {
+    const currentAudioUrl = getCurrentAudioUrl();
+    if (currentAudioUrl) {
       try {
         setDwightSpeaking(true);
         // In a real app, you'd save the audio file first and get its path
@@ -489,6 +495,37 @@ export default function DwightAudioDashboard() {
       setPlaying(audioRecorder.isRecording || audioRecorder.isPlaying);
     }
   }, [audioRecorder.waveformData, audioRecorder.isRecording, audioRecorder.isPlaying]);
+
+  // Handle trim button click
+  const handleTrimClick = () => {
+    if (audioRecorder.audioUrl || trimmedAudioUrl) {
+      setShowTrimmer(true);
+    } else {
+      alert("Please record some audio first before trimming.");
+    }
+  };
+
+  // Handle trim completion
+  const handleTrimComplete = (newTrimmedUrl: string, startTime: number, endTime: number) => {
+    setTrimmedAudioUrl(newTrimmedUrl);
+    setShowTrimmer(false);
+    
+    // Add success message to transcript
+    setTranscript([
+      { type: "speech", text: `Audio trimmed: ${startTime.toFixed(2)}s to ${endTime.toFixed(2)}s` },
+    ]);
+    
+    // Add to non-verbal sounds
+    setNonverbal(prev => [
+      ...prev,
+      { sound: "audio trimmed", time: new Date().toLocaleTimeString() }
+    ]);
+  };
+
+  // Get current audio URL (trimmed takes priority)
+  const getCurrentAudioUrl = () => {
+    return trimmedAudioUrl || audioRecorder.audioUrl;
+  };
 
   return (
     <div
@@ -750,7 +787,8 @@ export default function DwightAudioDashboard() {
               }}
               title={(audioRecorder.isPlaying || playing) ? "Pause" : "Play"}
               onClick={() => {
-                if (audioRecorder.audioUrl) {
+                const currentAudioUrl = getCurrentAudioUrl();
+                if (currentAudioUrl) {
                   audioRecorder.playAudio();
                 } else {
                   setPlaying(p => !p);
@@ -788,7 +826,7 @@ export default function DwightAudioDashboard() {
                 cursor: "pointer"
               }}
               title="Trim Tool"
-              onClick={() => alert("Trim tool coming soon!")}
+              onClick={handleTrimClick}
             >✂️ Trim</button>
           </div>
           {/* --- Transcription --- */}
@@ -938,7 +976,7 @@ export default function DwightAudioDashboard() {
               </li>
             ))}
             {/* Show current recording if active */}
-            {audioRecorder.audioUrl && (
+            {(audioRecorder.audioUrl || trimmedAudioUrl) && (
               <li style={{
                 background: "#333c",
                 borderRadius: "10px",
@@ -954,7 +992,9 @@ export default function DwightAudioDashboard() {
                 border: `2px solid ${colors.cobalt}`
               }}>
                 <div>
-                  <span style={{ color: colors.cobalt, fontWeight: "700", marginRight: "8px" }}>Current Recording</span>
+                  <span style={{ color: colors.cobalt, fontWeight: "700", marginRight: "8px" }}>
+                    {trimmedAudioUrl ? "Trimmed Recording" : "Current Recording"}
+                  </span>
                   <span style={{ color: "#fff", fontWeight: "400", marginRight: "8px" }}>{Math.floor(audioRecorder.duration / 60)}:{Math.floor(audioRecorder.duration % 60).toString().padStart(2, '0')}</span>
                   <span style={{ color: "#999" }}>Now</span>
                 </div>
@@ -985,6 +1025,7 @@ export default function DwightAudioDashboard() {
         left: 3,
         zIndex: 100,
         width: 420,
+        maxHeight: "500px", // Prevent excessive growth
         background: "rgba(30,34,36,0.98)",
         border: `2.3px solid ${colors.cobalt}`,
         borderRadius: "26px",
@@ -1062,7 +1103,7 @@ export default function DwightAudioDashboard() {
         <div style={{
           flex: 1,
           overflowY: "auto",
-          maxHeight: "500px",
+          maxHeight: "300px", // Constrain message area height
           marginBottom: "7px"
         }}>
           {dwightMessages.map((msg, idx) => (
@@ -1194,6 +1235,15 @@ export default function DwightAudioDashboard() {
       >
         <BatLogo size={128} />
       </div>
+      
+      {/* Audio Trimmer Modal */}
+      {showTrimmer && (
+        <AudioTrimmer
+          audioUrl={getCurrentAudioUrl()}
+          onTrimComplete={handleTrimComplete}
+          onClose={() => setShowTrimmer(false)}
+        />
+      )}
     </div>
   );
 }

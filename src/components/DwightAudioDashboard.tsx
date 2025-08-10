@@ -290,6 +290,9 @@ export default function DwightAudioDashboard() {
   const [soundTriggers, setSoundTriggers] = useState<string[]>(["baby crying", "gunshots"]);
   const [speechTriggers, setSpeechTriggers] = useState<string[]>(["help", "emergency"]);
   const [customSound, setCustomSound] = useState("");
+  
+  // Kill switch state
+  const [isKillSwitchActive, setIsKillSwitchActive] = useState(false);
 
   // Text-to-speech function for Dwight
   const speakDwightMessage = useCallback((text: string) => {
@@ -377,6 +380,11 @@ export default function DwightAudioDashboard() {
 
   // Handle Dwight chat with real AI backend and speech
   const sendDwight = async () => {
+    if (isKillSwitchActive) {
+      alert("Dwight is disabled while privacy mode is active.");
+      return;
+    }
+    
     if (dwightInput.trim()) {
       const userMessage = {
         sender: "user",
@@ -501,8 +509,95 @@ export default function DwightAudioDashboard() {
     if (audioRecorder.audioUrl || trimmedAudioUrl) {
       setShowTrimmer(true);
     } else {
-      alert("Please record some audio first before trimming.");
+      // For demo purposes, offer to create a mock recording
+      if (confirm("No audio recording found. Would you like to create a mock recording for testing the trimmer?")) {
+        createMockRecording();
+      }
     }
+  };
+
+  // Create a mock audio recording for testing
+  const createMockRecording = () => {
+    // Create a simple audio context and generate a test tone
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const sampleRate = audioCtx.sampleRate;
+    const duration = 10; // 10 seconds
+    const numberOfChannels = 1;
+    const length = sampleRate * duration;
+    
+    const buffer = audioCtx.createBuffer(numberOfChannels, length, sampleRate);
+    const channelData = buffer.getChannelData(0);
+    
+    // Generate a simple test tone (440Hz sine wave)
+    for (let i = 0; i < length; i++) {
+      channelData[i] = Math.sin(2 * Math.PI * 440 * i / sampleRate) * 0.3;
+    }
+    
+    // Convert to WAV and create blob URL
+    const wavBlob = bufferToWav(buffer);
+    const mockAudioUrl = URL.createObjectURL(wavBlob);
+    
+    // Update state to simulate having a recording
+    setTrimmedAudioUrl(mockAudioUrl);
+    
+    // Update transcript
+    setTranscript([
+      { type: "speech", text: "Mock audio recording created (10 seconds, 440Hz tone)" },
+    ]);
+    
+    // Add to non-verbal sounds
+    setNonverbal(prev => [
+      ...prev,
+      { sound: "mock recording generated", time: new Date().toLocaleTimeString() }
+    ]);
+  };
+
+  // Helper function to convert AudioBuffer to WAV
+  const bufferToWav = (buffer: AudioBuffer): Blob => {
+    const length = buffer.length;
+    const numberOfChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const bytesPerSample = 2;
+    const blockAlign = numberOfChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = length * blockAlign;
+    const bufferSize = 44 + dataSize;
+    
+    const arrayBuffer = new ArrayBuffer(bufferSize);
+    const view = new DataView(arrayBuffer);
+    
+    // WAV header
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+    
+    writeString(0, 'RIFF');
+    view.setUint32(4, bufferSize - 8, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numberOfChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bytesPerSample * 8, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+    
+    // Convert audio data to 16-bit PCM
+    let offset = 44;
+    for (let i = 0; i < length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+        view.setInt16(offset, sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
   };
 
   // Handle trim completion
@@ -525,6 +620,30 @@ export default function DwightAudioDashboard() {
   // Get current audio URL (trimmed takes priority)
   const getCurrentAudioUrl = () => {
     return trimmedAudioUrl || audioRecorder.audioUrl;
+  };
+
+  // Kill switch handler
+  const handleKillSwitch = () => {
+    setIsKillSwitchActive(!isKillSwitchActive);
+    
+    if (!isKillSwitchActive) {
+      // Activate kill switch
+      audioRecorder.stopRecording();
+      audioRecorder.resetRecording();
+      stopDwightSpeaking();
+      setPlaying(false);
+      setPaused(false);
+      
+      // Add a warning message
+      setTranscript([
+        { type: "speech", text: "🔴 PRIVACY MODE ACTIVATED - All listening and AI functions disabled" },
+      ]);
+    } else {
+      // Deactivate kill switch
+      setTranscript([
+        { type: "speech", text: "🟢 System reactivated - Listening and AI functions restored" },
+      ]);
+    }
   };
 
   return (
@@ -551,26 +670,64 @@ export default function DwightAudioDashboard() {
         textAlign: "center",
         position: "relative"
       }}>
+        {/* Kill Switch - Top Right */}
+        <div style={{
+          position: "absolute",
+          top: 20,
+          right: 20,
+          zIndex: 50
+        }}>
+          <button
+            onClick={handleKillSwitch}
+            style={{
+              background: isKillSwitchActive ? "#ff4444" : "#333",
+              color: isKillSwitchActive ? "#fff" : "#ff4444",
+              border: `2px solid #ff4444`,
+              borderRadius: "12px",
+              padding: "12px 20px",
+              fontSize: "1.1rem",
+              fontWeight: "bold",
+              cursor: "pointer",
+              boxShadow: isKillSwitchActive ? "0 0 15px #ff444488" : "0 2px 8px #00000040",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              transition: "all 0.3s ease"
+            }}
+            title={isKillSwitchActive ? "Click to restore system" : "Emergency kill switch - disables all listening and AI"}
+          >
+            {isKillSwitchActive ? "🔴" : "⭕"} 
+            {isKillSwitchActive ? "PRIVACY MODE" : "KILL SWITCH"}
+          </button>
+        </div>
+        
         <BatLogo size={168} />
         <h1 style={{
           fontWeight: "900",
           fontSize: "3.2rem",
           letterSpacing: "2.2px",
-          color: colors.cobalt,
+          color: isKillSwitchActive ? "#ff4444" : colors.cobalt,
           margin: "8px 0 2px 0",
           textShadow: "0 2px 12px #000b",
+          opacity: isKillSwitchActive ? 0.6 : 1,
+          transition: "all 0.3s ease"
         }}>
           Dwight Audio DVR Dashboard
         </h1>
         <p style={{
-          color: "#bdf",
+          color: isKillSwitchActive ? "#ff8888" : "#bdf",
           fontWeight: "600",
           fontSize: "1.23rem",
           maxWidth: 620,
           margin: "0 auto",
           marginBottom: "16px",
+          opacity: isKillSwitchActive ? 0.7 : 1,
+          transition: "all 0.3s ease"
         }}>
-          Sleek. Techy. Wired for brilliance. Inspect, dissect, and command your audio files with Dwight AI.
+          {isKillSwitchActive 
+            ? "🔒 Privacy mode active - All systems disabled for your security"
+            : "Sleek. Techy. Wired for brilliance. Inspect, dissect, and command your audio files with Dwight AI."
+          }
         </p>
       </div>
       {/* Panels Layout */}
@@ -612,21 +769,23 @@ export default function DwightAudioDashboard() {
             <b style={{ color: "#bdf" }}>Manual Trigger:</b>
             <button
               style={{
-                background: audioRecorder.isRecording ? "#ff4444" : colors.cobalt,
-                color: audioRecorder.isRecording ? "#fff" : colors.gray,
+                background: isKillSwitchActive ? "#666" : (audioRecorder.isRecording ? "#ff4444" : colors.cobalt),
+                color: isKillSwitchActive ? "#999" : (audioRecorder.isRecording ? "#fff" : colors.gray),
                 border: "none",
                 borderRadius: "9px",
                 padding: "8px 18px",
                 fontWeight: "bold",
                 fontSize: "1.08rem",
-                cursor: "pointer",
+                cursor: isKillSwitchActive ? "not-allowed" : "pointer",
                 marginLeft: "12px",
                 marginTop: "2px",
-                boxShadow: "0 2px 8px #0004"
+                boxShadow: "0 2px 8px #0004",
+                opacity: isKillSwitchActive ? 0.5 : 1
               }}
-              onClick={handleManualRecord}
+              onClick={() => !isKillSwitchActive && handleManualRecord()}
+              disabled={isKillSwitchActive}
             >
-              {audioRecorder.isRecording ? "Stop Recording" : "Record Now"}
+              {isKillSwitchActive ? "Disabled" : (audioRecorder.isRecording ? "Stop Recording" : "Record Now")}
             </button>
           </div>
           <div>
@@ -835,12 +994,13 @@ export default function DwightAudioDashboard() {
             textAlign: "center",
             fontSize: "1.22rem",
             fontWeight: "600",
-            color: "#bdf",
-            background: "#222b",
+            color: isKillSwitchActive ? "#ff8888" : "#bdf",
+            background: isKillSwitchActive ? "#44222b" : "#222b",
             borderRadius: "12px",
             padding: "10px 18px",
             boxShadow: "0 2px 7px #0006",
-            minHeight: "52px"
+            minHeight: "52px",
+            transition: "all 0.3s ease"
           }}>
             {transcript.map((line, idx) => (
               <span key={idx} style={{
@@ -1026,14 +1186,16 @@ export default function DwightAudioDashboard() {
         zIndex: 100,
         width: 420,
         maxHeight: "500px", // Prevent excessive growth
-        background: "rgba(30,34,36,0.98)",
-        border: `2.3px solid ${colors.cobalt}`,
+        background: isKillSwitchActive ? "rgba(60,40,40,0.98)" : "rgba(30,34,36,0.98)",
+        border: `2.3px solid ${isKillSwitchActive ? "#ff4444" : colors.cobalt}`,
         borderRadius: "26px",
-        boxShadow: "0 4px 22px #000b",
+        boxShadow: isKillSwitchActive ? "0 4px 22px #ff444444" : "0 4px 22px #000b",
         padding: "22px 14px",
         display: "flex",
         flexDirection: "column",
-        gap: "11px"
+        gap: "11px",
+        opacity: isKillSwitchActive ? 0.7 : 1,
+        transition: "all 0.3s ease"
       }}>
         {/* Large Circular Waveform at Top Center */}
         <div style={{ 
@@ -1090,15 +1252,15 @@ export default function DwightAudioDashboard() {
           <span style={{
             fontWeight: "700",
             fontSize: "1.31rem",
-            color: colors.cobalt,
+            color: isKillSwitchActive ? "#ff8888" : colors.cobalt,
             letterSpacing: "1px"
           }}>Dwight AI</span>
           <span style={{
-            color: dwightSpeaking ? colors.cobalt : "#888",
+            color: isKillSwitchActive ? "#ff4444" : (dwightSpeaking ? colors.cobalt : "#888"),
             fontWeight: "500",
             marginLeft: "auto",
             fontSize: "0.98rem"
-          }}>{dwightSpeaking ? "Speaking…" : "Idle"}</span>
+          }}>{isKillSwitchActive ? "Disabled" : (dwightSpeaking ? "Speaking…" : "Idle")}</span>
         </div>
         <div style={{
           flex: 1,
@@ -1187,36 +1349,40 @@ export default function DwightAudioDashboard() {
           <input
             ref={dwightInputRef}
             type="text"
-            placeholder="Talk to Dwight…"
+            placeholder={isKillSwitchActive ? "Dwight is disabled in privacy mode" : "Talk to Dwight…"}
             value={dwightInput}
             onChange={e => setDwightInput(e.target.value)}
+            disabled={isKillSwitchActive}
             style={{
               flex: 1,
               padding: "7px 13px",
               borderRadius: "7px",
-              border: `1.5px solid ${colors.cobalt}`,
-              background: colors.black,
-              color: colors.cobalt,
+              border: `1.5px solid ${isKillSwitchActive ? "#666" : colors.cobalt}`,
+              background: isKillSwitchActive ? "#333" : colors.black,
+              color: isKillSwitchActive ? "#999" : colors.cobalt,
               fontWeight: "600",
               fontSize: "1rem",
               outline: "none",
-              boxShadow: "0 1px 6px #0004"
+              boxShadow: "0 1px 6px #0004",
+              opacity: isKillSwitchActive ? 0.5 : 1
             }}
-            onKeyDown={e => e.key === "Enter" && sendDwight()}
+            onKeyDown={e => e.key === "Enter" && !isKillSwitchActive && sendDwight()}
           />
           <button
             style={{
-              background: colors.cobalt,
-              color: colors.gray,
+              background: isKillSwitchActive ? "#666" : colors.cobalt,
+              color: isKillSwitchActive ? "#999" : colors.gray,
               border: "none",
               borderRadius: "7px",
               padding: "7px 13px",
               fontWeight: "bold",
               fontSize: "1rem",
-              cursor: "pointer",
+              cursor: isKillSwitchActive ? "not-allowed" : "pointer",
               boxShadow: "0 2px 8px #0007",
+              opacity: isKillSwitchActive ? 0.5 : 1
             }}
-            onClick={sendDwight}
+            onClick={() => !isKillSwitchActive && sendDwight()}
+            disabled={isKillSwitchActive}
           >
             Send
           </button>

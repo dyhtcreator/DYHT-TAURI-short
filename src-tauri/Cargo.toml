@@ -24,6 +24,27 @@ hound = "3.5"
 rusqlite = { version = "0.31", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# For AI and ML capabilities
+candle-core = "0.6"
+candle-nn = "0.6"
+candle-transformers = "0.6"
+candle-datasets = "0.6"
+tch = { version = "0.13", optional = true }
+
+# For HTTP requests to AI APIs
+reqwest = { version = "0.11", features = ["json"] }
+
+# For Python integration
+pyo3 = { version = "0.20", features = ["auto-initialize"], optional = true }
+pyo3-asyncio = { version = "0.20", optional = true }
+
+# For improved async handling
+anyhow = "1.0"
+thiserror = "1.0"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+python-integration = ["pyo3", "pyo3-asyncio"]
+pytorch = ["tch"]
+full-ai = ["python-integration", "pytorch"]

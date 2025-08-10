@@ -1,7 +1,7 @@
 {
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "",
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
     "devPath": "../dist",
     "distDir": "../dist"
   },
@@ -10,18 +10,56 @@
     "version": "0.1.0"
   },
   "tauri": {
+    "allowlist": {
+      "all": true
+    },
+    "bundle": {
+      "active": true,
+      "category": "Productivity",
+      "copyright": "Copyright © 2024 Kelly Garnett",
+      "deb": {
+        "depends": []
+      },
+      "externalBin": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "identifier": "com.dwight.desktop-agent",
+      "longDescription": "Privacy-first desktop agent for audio sensing, transcription, and event logging.",
+      "macOS": {
+        "entitlements": null,
+        "exceptionDomain": "",
+        "frameworks": [],
+        "providerShortName": null,
+        "signingIdentity": null
+      },
+      "resources": [],
+      "shortDescription": "Dwight Desktop Agent",
+      "targets": "all",
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": ""
+      }
+    },
+    "security": {
+      "csp": "default-src blob: data: filesystem: ws: http: https: 'unsafe-inline' 'unsafe-eval'"
+    },
+    "updater": {
+      "active": false
+    },
     "windows": [
       {
         "title": "Dwight Desktop Agent",
         "width": 1024,
         "height": 768,
         "resizable": true,
-        "fullscreen": false,
-        "url": "index.html"
+        "fullscreen": false
       }
-    ],
-    "security": {
-      "csp": "default-src blob: data: filesystem: ws: http: https: 'unsafe-inline' 'unsafe-eval'"
-    }
+    ]
   }
 }

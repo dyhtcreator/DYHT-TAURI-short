@@ -8,6 +8,8 @@ use tauri::{Manager, WindowEvent};
 mod whisper;
 mod database;
 mod ai;
+mod ai_models;
+mod python_integration;
 
 fn main() {
     tauri::Builder::default()
@@ -21,10 +23,31 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Whisper transcription
             whisper::transcribe_audio,
+            whisper::transcribe_audio_detailed,
             whisper::analyze_audio_features,
+            whisper::configure_whisper,
+            whisper::get_whisper_status,
+            
+            // Original AI chat
             ai::chat_with_dwight,
             ai::analyze_audio_intelligence,
+            
+            // Advanced AI models
+            ai_models::chat_with_llama,
+            ai_models::rag_search,
+            ai_models::get_ai_models,
+            ai_models::enhanced_dwight_chat,
+            ai_models::ai_audio_analysis,
+            
+            // Python integration
+            python_integration::execute_python_script,
+            python_integration::get_python_scripts,
+            python_integration::python_audio_preprocessing,
+            python_integration::python_ml_classification,
+            
+            // Database operations
             database_commands::save_audio_record,
             database_commands::get_audio_records,
             database_commands::save_trigger,

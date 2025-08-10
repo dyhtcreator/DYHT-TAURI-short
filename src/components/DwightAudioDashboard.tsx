@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { 
   chatWithDwight, 
@@ -39,34 +39,63 @@ function BatLogo({ size = 72 }) {
   );
 }
 
-// Animated circular waveform (magic!)
-const CircularWaveform = ({ size = 120, animate }) => {
+// Enhanced circular waveform for Dwight's speech (responsive to audio data)
+const CircularWaveform = ({ size = 120, animate, audioData = [], isSpeaking = false }) => {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (!animate) return;
-    const timer = setInterval(() => setTick(t => t + 1), 45);
+    if (!animate && !isSpeaking) return;
+    const timer = setInterval(() => setTick(t => t + 1), 35);
     return () => clearInterval(timer);
-  }, [animate]);
+  }, [animate, isSpeaking]);
+  
   const points = [];
-  const segments = 16;
+  const segments = 24; // More segments for smoother animation
+  const baseRadius = Math.max(20, size / 6);
+  const amplitude = isSpeaking ? 25 : 14; // Larger amplitude when speaking
+  
   for (let i = 0; i < segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
     const base = size / 2;
-    const radius =
-      base - 22 +
-      14 * Math.abs(Math.sin(angle * 3 + tick / 15) * Math.cos(angle + tick / 8)) +
-      9 * Math.abs(Math.sin(tick / 5 + angle * 2));
+    
+    // Use real audio data if available, otherwise use synthetic animation
+    let audioInfluence = 0;
+    if (audioData.length > 0) {
+      const dataIndex = Math.floor(i * audioData.length / segments);
+      audioInfluence = audioData[dataIndex] * (isSpeaking ? 30 : 15);
+    }
+    
+    const radius = 
+      base - baseRadius +
+      amplitude * Math.abs(Math.sin(angle * 3 + tick / 12) * Math.cos(angle + tick / 6)) +
+      12 * Math.abs(Math.sin(tick / 4 + angle * 2)) +
+      audioInfluence;
+    
+    const innerRadius = baseRadius * (isSpeaking ? 0.8 : 1);
+    
     points.push({
-      x1: base + 22 * Math.cos(angle),
-      y1: base + 22 * Math.sin(angle),
-      x2: base + (22 + radius) * Math.cos(angle),
-      y2: base + (22 + radius) * Math.sin(angle),
-      color: colors.cobalt,
+      x1: base + innerRadius * Math.cos(angle),
+      y1: base + innerRadius * Math.sin(angle),
+      x2: base + radius * Math.cos(angle),
+      y2: base + radius * Math.sin(angle),
+      color: isSpeaking ? "#4FC3F7" : colors.cobalt,
+      opacity: isSpeaking ? 0.9 : 0.7,
+      strokeWidth: isSpeaking ? 4 : 3,
     });
   }
+  
+  const centerRadius = baseRadius * (isSpeaking ? 0.9 : 1);
+  const centerStroke = isSpeaking ? 3 : 2.5;
+  
   return (
-    <svg width={size} height={size}>
-      <circle cx={size / 2} cy={size / 2} r={28} fill={colors.black} stroke={colors.cobalt} strokeWidth="2.5" />
+    <svg width={size} height={size} style={{ filter: isSpeaking ? "drop-shadow(0 0 8px #38B6FF)" : "none" }}>
+      <circle 
+        cx={size / 2} 
+        cy={size / 2} 
+        r={centerRadius} 
+        fill={colors.black} 
+        stroke={isSpeaking ? "#4FC3F7" : colors.cobalt} 
+        strokeWidth={centerStroke}
+      />
       {points.map((p, i) => (
         <line
           key={i}
@@ -75,9 +104,8 @@ const CircularWaveform = ({ size = 120, animate }) => {
           x2={p.x2}
           y2={p.y2}
           stroke={p.color}
-          strokeWidth="3"
-          opacity={0.7}
-          zindex={200}
+          strokeWidth={p.strokeWidth}
+          opacity={p.opacity}
         />
       ))}
       <text
@@ -85,7 +113,7 @@ const CircularWaveform = ({ size = 120, animate }) => {
         y="54%"
         textAnchor="middle"
         fill="#fff"
-        fontSize="1.15rem"
+        fontSize={size > 100 ? "1.4rem" : "1.15rem"}
         fontWeight="bold"
         style={{
           fontFamily: "Montserrat, Arial, sans-serif",
@@ -98,54 +126,128 @@ const CircularWaveform = ({ size = 120, animate }) => {
   );
 };
 
-// Main Huge Waveform (center panel)
-function RollingWaveform({ playing }) {
+// Enhanced XL Linear Waveform (main inspection panel)
+function RollingWaveform({ playing, audioData = [], isRecording = false }) {
   const [offset, setOffset] = useState(0);
+  const [peaks, setPeaks] = useState(Array(64).fill(0.3));
+  
   useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => setOffset(o => (o + 8) % 1600), 40);
+    if (!playing && !isRecording) return;
+    const id = setInterval(() => setOffset(o => (o + 6) % 2000), 30);
     return () => clearInterval(id);
-  }, [playing]);
-  // Fake waveform data
+  }, [playing, isRecording]);
+
+  // Update peaks with real audio data
+  useEffect(() => {
+    if (audioData.length > 0) {
+      const newPeaks = [];
+      const segmentSize = Math.max(1, Math.floor(audioData.length / 64));
+      
+      for (let i = 0; i < 64; i++) {
+        const start = i * segmentSize;
+        const end = Math.min(start + segmentSize, audioData.length);
+        let max = 0;
+        
+        for (let j = start; j < end; j++) {
+          max = Math.max(max, audioData[j]);
+        }
+        
+        newPeaks.push(Math.max(0.1, max));
+      }
+      
+      setPeaks(newPeaks);
+    }
+  }, [audioData]);
+
+  // Generate enhanced waveform path with real data influence
   function getPath(off = 0) {
     let p = "";
-    for (let i = 0; i < 1600; i += 32) {
-      const x = i / 1.45;
-      const y = 120 + (Math.sin((x + off) / 60) * 60 + Math.cos((x + off * 0.8) / 17) * 22);
+    const width = 1200;
+    const height = 280;
+    const centerY = height / 2;
+    
+    for (let i = 0; i < width; i += 16) {
+      const x = i;
+      const dataIndex = Math.floor((i / width) * peaks.length);
+      const audioPeak = peaks[dataIndex] || 0.3;
+      
+      // Combine synthetic animation with real audio data
+      const synthetic = Math.sin((x + off) / 80) * 45 + Math.cos((x + off * 0.7) / 20) * 25;
+      const audioInfluence = audioPeak * 80; // Scale up audio influence
+      
+      const y = centerY + synthetic + (isRecording ? audioInfluence : audioInfluence * 0.5);
+      
       p += `${i === 0 ? "M" : "L"}${x},${y} `;
     }
     return p;
   }
+
+  const waveColor = isRecording ? "#4FC3F7" : colors.cobalt;
+  const strokeWidth = isRecording ? 10 : 8;
+  
   return (
     <svg
       width="100%"
-      height={220}
-      viewBox="0 0 1100 220"
+      height={280}
+      viewBox="0 0 1200 280"
       style={{
-        background: "linear-gradient(90deg,#181a1b 70%,#222 100%)",
+        background: `linear-gradient(90deg,${colors.black} 60%, #1a1f20 100%)`,
         borderRadius: 36,
-        boxShadow: "0 2px 22px #0007",
+        boxShadow: isRecording ? "0 4px 30px #38B6FF33" : "0 2px 22px #0007",
         marginBottom: 24,
         display: "block",
+        border: isRecording ? `2px solid ${colors.cobalt}` : "none",
       }}
     >
-      <path
-        d={getPath(offset)}
-        stroke={colors.cobalt}
-        strokeWidth="8"
-        fill="none"
-        opacity="0.93"
-        filter="url(#glow)"
-      />
       <defs>
         <filter id="glow">
-          <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+          <feGaussianBlur stdDeviation={isRecording ? 6 : 4} result="coloredBlur" />
           <feMerge>
             <feMergeNode in="coloredBlur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
+        <linearGradient id="waveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={waveColor} stopOpacity="0.8"/>
+          <stop offset="50%" stopColor={waveColor} stopOpacity="1"/>
+          <stop offset="100%" stopColor={waveColor} stopOpacity="0.8"/>
+        </linearGradient>
       </defs>
+      
+      {/* Main waveform */}
+      <path
+        d={getPath(offset)}
+        stroke="url(#waveGradient)"
+        strokeWidth={strokeWidth}
+        fill="none"
+        opacity="0.95"
+        filter="url(#glow)"
+        strokeLinecap="round"
+      />
+      
+      {/* Secondary subtle waveform for depth */}
+      <path
+        d={getPath(offset + 100)}
+        stroke={waveColor}
+        strokeWidth="4"
+        fill="none"
+        opacity="0.4"
+        strokeLinecap="round"
+      />
+      
+      {/* Recording indicator line */}
+      {isRecording && (
+        <line
+          x1="50%"
+          y1="20"
+          x2="50%"
+          y2="260"
+          stroke="#ff4444"
+          strokeWidth="3"
+          opacity="0.8"
+          strokeDasharray="5,5"
+        />
+      )}
     </svg>
   );
 }
@@ -165,7 +267,9 @@ export default function DwightAudioDashboard() {
   ]);
   const [dwightInput, setDwightInput] = useState("");
   const [dwightSpeaking, setDwightSpeaking] = useState(false);
+  const [dwightAudioData, setDwightAudioData] = useState([]);
   const dwightInputRef = useRef<HTMLInputElement>(null);
+  const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null);
   
   // Transcription & non-verbal
   const [transcript, setTranscript] = useState([
@@ -181,6 +285,61 @@ export default function DwightAudioDashboard() {
   const [soundTriggers, setSoundTriggers] = useState<string[]>(["baby crying", "gunshots"]);
   const [speechTriggers, setSpeechTriggers] = useState<string[]>(["help", "emergency"]);
   const [customSound, setCustomSound] = useState("");
+
+  // Text-to-speech function for Dwight
+  const speakDwightMessage = useCallback((text: string) => {
+    if ('speechSynthesis' in window) {
+      // Stop any current speech
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      speechSynthRef.current = utterance;
+      
+      // Configure voice settings for Dwight
+      utterance.rate = 0.9;
+      utterance.pitch = 0.8;
+      utterance.volume = 0.8;
+      
+      // Try to find a suitable voice
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(voice => 
+        voice.name.toLowerCase().includes('male') || 
+        voice.name.toLowerCase().includes('deep') ||
+        voice.name.toLowerCase().includes('alex')
+      );
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+      
+      utterance.onstart = () => {
+        setDwightSpeaking(true);
+        // Simulate audio data for visualization
+        const fakeAudioData = Array(32).fill(0).map(() => Math.random() * 0.8);
+        setDwightAudioData(fakeAudioData);
+      };
+      
+      utterance.onend = () => {
+        setDwightSpeaking(false);
+        setDwightAudioData([]);
+      };
+      
+      utterance.onerror = () => {
+        setDwightSpeaking(false);
+        setDwightAudioData([]);
+      };
+      
+      window.speechSynthesis.speak(utterance);
+    }
+  }, []);
+
+  // Stop Dwight speaking
+  const stopDwightSpeaking = useCallback(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setDwightSpeaking(false);
+      setDwightAudioData([]);
+    }
+  }, []);
 
   // Load data from backend on component mount
   useEffect(() => {
@@ -211,7 +370,7 @@ export default function DwightAudioDashboard() {
     }
   };
 
-  // Handle Dwight chat with real AI backend
+  // Handle Dwight chat with real AI backend and speech
   const sendDwight = async () => {
     if (dwightInput.trim()) {
       const userMessage = {
@@ -227,28 +386,32 @@ export default function DwightAudioDashboard() {
         const response: DwightResponse = await chatWithDwight(dwightInput.trim());
         
         setTimeout(() => {
-          setDwightMessages(msgs => [
-            ...msgs,
-            {
-              sender: "dwight",
-              text: response.message,
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            },
-          ]);
+          const dwightMessage = {
+            sender: "dwight",
+            text: response.message,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          };
+          
+          setDwightMessages(msgs => [...msgs, dwightMessage]);
           setDwightSpeaking(false);
+          
+          // Automatically speak Dwight's response
+          speakDwightMessage(response.message);
         }, 1000);
       } catch (error) {
         console.error("Dwight chat error:", error);
         setTimeout(() => {
-          setDwightMessages(msgs => [
-            ...msgs,
-            {
-              sender: "dwight",
-              text: "I'm experiencing some technical difficulties. Let me recalibrate my systems.",
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            },
-          ]);
+          const errorMessage = {
+            sender: "dwight",
+            text: "I'm experiencing some technical difficulties. Let me recalibrate my systems.",
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          };
+          
+          setDwightMessages(msgs => [...msgs, errorMessage]);
           setDwightSpeaking(false);
+          
+          // Speak the error message too
+          speakDwightMessage(errorMessage.text);
         }, 1000);
       }
       
@@ -543,7 +706,11 @@ export default function DwightAudioDashboard() {
             }}>Audio Inspector</span>
           </div>
           {/* --- Waveform --- */}
-          <RollingWaveform playing={playing && !paused} />
+          <RollingWaveform 
+            playing={playing && !paused} 
+            audioData={audioRecorder.waveformData}
+            isRecording={audioRecorder.isRecording}
+          />
           {/* --- Controls --- */}
           <div style={{
             display: "flex",
@@ -817,7 +984,7 @@ export default function DwightAudioDashboard() {
         bottom: 38,
         left: 3,
         zIndex: 100,
-        width: 370,
+        width: 420,
         background: "rgba(30,34,36,0.98)",
         border: `2.3px solid ${colors.cobalt}`,
         borderRadius: "26px",
@@ -827,14 +994,64 @@ export default function DwightAudioDashboard() {
         flexDirection: "column",
         gap: "11px"
       }}>
+        {/* Large Circular Waveform at Top Center */}
+        <div style={{ 
+          display: "flex", 
+          justifyContent: "center", 
+          marginBottom: "16px",
+          position: "relative"
+        }}>
+          <CircularWaveform 
+            size={140} 
+            animate={dwightSpeaking} 
+            audioData={dwightAudioData}
+            isSpeaking={dwightSpeaking}
+          />
+          {/* Sound Control Button */}
+          <button
+            title={dwightSpeaking ? "Stop Speaking" : "Speak Last Message"}
+            style={{
+              position: "absolute",
+              top: "8px",
+              right: "8px",
+              background: dwightSpeaking ? "#ff4444" : colors.cobalt,
+              border: "none",
+              borderRadius: "50%",
+              width: "40px",
+              height: "40px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              color: "#fff",
+              fontSize: "1.4rem",
+              boxShadow: "0 2px 8px #0007",
+              transition: "all 0.2s ease"
+            }}
+            onClick={() => {
+              if (dwightSpeaking) {
+                stopDwightSpeaking();
+              } else {
+                const lastDwightMessage = dwightMessages
+                  .filter(msg => msg.sender === "dwight")
+                  .slice(-1)[0];
+                if (lastDwightMessage) {
+                  speakDwightMessage(lastDwightMessage.text);
+                }
+              }
+            }}
+          >
+            {dwightSpeaking ? "🔇" : "🔊"}
+          </button>
+        </div>
+        
         <div style={{ display: "flex", alignItems: "center", gap: "13px", marginBottom: "7px" }}>
-          <CircularWaveform size={64} animate={dwightSpeaking} />
           <span style={{
             fontWeight: "700",
-            fontSize: "1.21rem",
+            fontSize: "1.31rem",
             color: colors.cobalt,
             letterSpacing: "1px"
-          }}>Dwight</span>
+          }}>Dwight AI</span>
           <span style={{
             color: dwightSpeaking ? colors.cobalt : "#888",
             fontWeight: "500",

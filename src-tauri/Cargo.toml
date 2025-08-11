@@ -25,10 +25,10 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # For AI and ML capabilities
-candle-core = "0.6"
-candle-nn = "0.6"
-candle-transformers = "0.6"
-candle-datasets = "0.6"
+candle-core = "0.9"
+candle-nn = "0.9"
+candle-transformers = "0.9"
+candle-datasets = "0.9"
 tch = { version = "0.13", optional = true }
 
 # For HTTP requests to AI APIs

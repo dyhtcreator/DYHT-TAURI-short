@@ -16,7 +16,7 @@ pub struct PythonResult {
     pub execution_time_ms: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PythonScript {
     pub name: String,
     pub code: String,

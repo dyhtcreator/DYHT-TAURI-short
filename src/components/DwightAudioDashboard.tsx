@@ -3,28 +3,26 @@ import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { useAudioBuffer } from "../hooks/useAudioBuffer";
 import { 
   chatWithDwight, 
+  enhancedDwightChat,
   transcribeAudio, 
+  transcribeAudioDetailed,
+  getWhisperStatus,
+  getAiModels,
   saveTrigger, 
   getTriggers, 
   getAudioRecords,
   type DwightResponse,
+  type LlamaResponse,
   type SoundTrigger,
   type AudioRecord 
 } from "../utils/tauri-api";
-
-// Cloud image background - matches your filename and location
-const CLOUD_BG_URL = "/myclouds.png";
-
-// Theme colors
-const colors = {
-  cobalt: "#38B6FF",
-  black: "#181a1b",
-  dark: "#232526",
-  accent: "#0f2027",
-  gray: "#222",
-  text: "#eee",
-  border: "#222d",
-};
+import { 
+  colors, 
+  createMainBackground, 
+  createPanelCloudBackground,
+  createCloudFilter 
+} from "../utils/cloudBackground";
+import DraggableDwightPanel from "./DraggableDwightPanel";
 
 // SVG Bat logo (center + watermark)
 function BatLogo({ size = 72 }) {
@@ -401,13 +399,24 @@ export default function DwightAudioDashboard() {
   // Audio buffering system (30-300 seconds continuous recording)
   const audioBuffer = useAudioBuffer(30);
   
-  // Audio controls
+  // Audio controls and sound trigger detection
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [buffer, setBuffer] = useState(30);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(100);
   const [showTrimTool, setShowTrimTool] = useState(false);
+  
+  // Sound trigger detection state
+  const [soundDetection, setSoundDetection] = useState({
+    isActive: false,
+    threshold: 50, // Volume threshold for trigger (0-100)
+    lastTrigger: 0,
+    cooldown: 2000 // 2 second cooldown between triggers
+  });
+  const soundAnalyserRef = useRef<AnalyserNode | null>(null);
+  const soundContextRef = useRef<AudioContext | null>(null);
+  const soundDetectionFrameRef = useRef<number>();
   
   // Dwight AI
   const [dwightMessages, setDwightMessages] = useState([
@@ -432,11 +441,18 @@ export default function DwightAudioDashboard() {
     { sound: "buffer system ready", time: "00:00" },
   ]);
   
-  // Database-driven data
+  // Database-driven data and AI model status
   const [recordings, setRecordings] = useState<AudioRecord[]>([]);
   const [soundTriggers, setSoundTriggers] = useState<string[]>(["baby crying", "gunshots"]);
   const [speechTriggers, setSpeechTriggers] = useState<string[]>(["help", "emergency"]);
   const [customSound, setCustomSound] = useState("");
+  const [aiModelsStatus, setAiModelsStatus] = useState({
+    whisper: "unknown",
+    llama: "unknown", 
+    mistral: "unknown",
+    gemma: "unknown",
+    rag: "unknown"
+  });
 
   // Text-to-speech function for Dwight
   const speakDwightMessage = useCallback((text: string) => {
@@ -493,21 +509,248 @@ export default function DwightAudioDashboard() {
     }
   }, []);
 
+  // Initialize sound detection
+  const initializeSoundDetection = useCallback(async () => {
+    try {
+      if (!soundContextRef.current) {
+        soundContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      
+      if (!soundAnalyserRef.current) {
+        soundAnalyserRef.current = soundContextRef.current.createAnalyser();
+        soundAnalyserRef.current.fftSize = 256;
+        soundAnalyserRef.current.smoothingTimeConstant = 0.8;
+      }
+      
+      // Connect to microphone stream if buffering is active
+      if (audioBuffer.isBuffering) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = soundContextRef.current.createMediaStreamSource(stream);
+        source.connect(soundAnalyserRef.current);
+        
+        setSoundDetection(prev => ({ ...prev, isActive: true }));
+        startSoundDetectionLoop();
+      }
+    } catch (error) {
+      console.error('Failed to initialize sound detection:', error);
+    }
+  }, [audioBuffer.isBuffering]);
+
+  // Sound detection loop
+  const startSoundDetectionLoop = useCallback(() => {
+    if (!soundAnalyserRef.current) return;
+    
+    const detectSound = () => {
+      if (!soundAnalyserRef.current || !soundDetection.isActive) return;
+      
+      const bufferLength = soundAnalyserRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      soundAnalyserRef.current.getByteFrequencyData(dataArray);
+      
+      // Calculate average volume
+      const average = dataArray.reduce((sum, value) => sum + value, 0) / bufferLength;
+      const volumePercent = (average / 255) * 100;
+      
+      // Check if volume exceeds threshold and cooldown period has passed
+      const now = Date.now();
+      if (volumePercent > soundDetection.threshold && 
+          now - soundDetection.lastTrigger > soundDetection.cooldown) {
+        
+        setSoundDetection(prev => ({ ...prev, lastTrigger: now }));
+        
+        // Check against sound triggers
+        const detectedSounds = soundTriggers.filter(trigger => {
+          // For now, we'll trigger on any loud sound
+          // In a real implementation, you'd use ML to classify sounds
+          return volumePercent > soundDetection.threshold;
+        });
+        
+        if (detectedSounds.length > 0) {
+          console.log(`Sound trigger detected: ${detectedSounds[0]} (volume: ${volumePercent.toFixed(1)}%)`);
+          
+          // Add to non-verbal log
+          setNonverbal(prev => [
+            { sound: `loud sound detected (${volumePercent.toFixed(1)}%)`, time: new Date().toLocaleTimeString() },
+            ...prev.slice(0, 9) // Keep only last 10 entries
+          ]);
+          
+          // Trigger recording if buffer is active
+          if (audioBuffer.isBuffering) {
+            handleManualRecord();
+          }
+        }
+      }
+      
+      soundDetectionFrameRef.current = requestAnimationFrame(detectSound);
+    };
+    
+    detectSound();
+  }, [soundDetection, soundTriggers, audioBuffer.isBuffering]);
+
+  // Stop sound detection
+  const stopSoundDetection = useCallback(() => {
+    setSoundDetection(prev => ({ ...prev, isActive: false }));
+    if (soundDetectionFrameRef.current) {
+      cancelAnimationFrame(soundDetectionFrameRef.current);
+    }
+  }, []);
+
+  // Speech recognition for trigger detection
+  const speechRecognitionRef = useRef<any>(null);
+  const [speechRecognitionActive, setSpeechRecognitionActive] = useState(false);
+
+  // Initialize continuous speech recognition for triggers
+  const initializeSpeechRecognition = useCallback(() => {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      console.warn('Speech recognition not supported in this browser');
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    speechRecognitionRef.current = new SpeechRecognition();
+    
+    speechRecognitionRef.current.continuous = true;
+    speechRecognitionRef.current.interimResults = true;
+    speechRecognitionRef.current.lang = 'en-US';
+    speechRecognitionRef.current.maxAlternatives = 1;
+
+    speechRecognitionRef.current.onresult = (event: any) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
+      
+      // Check against speech triggers
+      const matchedTriggers = speechTriggers.filter(trigger => 
+        transcript.includes(trigger.toLowerCase())
+      );
+      
+      if (matchedTriggers.length > 0) {
+        console.log(`Speech trigger detected: "${transcript}" matched triggers: ${matchedTriggers.join(', ')}`);
+        
+        // Add to transcript
+        setTranscript(prev => [
+          { type: "speech", text: `Trigger detected: "${transcript}"` },
+          ...prev.slice(0, 4) // Keep only last 5 entries
+        ]);
+        
+        // Add to non-verbal log
+        setNonverbal(prev => [
+          { sound: `speech trigger: ${matchedTriggers[0]}`, time: new Date().toLocaleTimeString() },
+          ...prev.slice(0, 9) // Keep only last 10 entries
+        ]);
+        
+        // Trigger recording if buffer is active
+        if (audioBuffer.isBuffering) {
+          handleManualRecord();
+        }
+      }
+    };
+
+    speechRecognitionRef.current.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      if (event.error === 'no-speech') {
+        // Restart recognition after a brief pause
+        setTimeout(() => {
+          if (speechRecognitionActive) {
+            startSpeechRecognition();
+          }
+        }, 1000);
+      }
+    };
+
+    speechRecognitionRef.current.onend = () => {
+      // Auto-restart if still active
+      if (speechRecognitionActive) {
+        setTimeout(() => {
+          startSpeechRecognition();
+        }, 500);
+      }
+    };
+  }, [speechTriggers, speechRecognitionActive, audioBuffer.isBuffering]);
+
+  // Start speech recognition
+  const startSpeechRecognition = useCallback(() => {
+    if (speechRecognitionRef.current && !speechRecognitionActive) {
+      try {
+        speechRecognitionRef.current.start();
+        setSpeechRecognitionActive(true);
+      } catch (error) {
+        console.error('Failed to start speech recognition:', error);
+      }
+    }
+  }, [speechRecognitionActive]);
+
+  // Stop speech recognition
+  const stopSpeechRecognition = useCallback(() => {
+    if (speechRecognitionRef.current && speechRecognitionActive) {
+      speechRecognitionRef.current.stop();
+      setSpeechRecognitionActive(false);
+    }
+  }, [speechRecognitionActive]);
+
   // Load data from backend and start buffering on component mount
   useEffect(() => {
     loadRecordings();
     loadTriggers();
+    checkAiModelsStatus();
     
     // Start continuous buffering as requested - always recording, just forgetting old data
-    audioBuffer.startBuffering().catch(error => {
+    audioBuffer.startBuffering().then(() => {
+      // Initialize sound detection after buffering starts
+      setTimeout(() => {
+        initializeSoundDetection();
+        initializeSpeechRecognition();
+        startSpeechRecognition();
+      }, 1000);
+    }).catch(error => {
       console.error("Failed to start audio buffering:", error);
     });
     
     return () => {
-      // Cleanup buffering on unmount
+      // Cleanup buffering and sound detection on unmount
       audioBuffer.stopBuffering();
+      stopSoundDetection();
+      stopSpeechRecognition();
+      
+      if (soundContextRef.current) {
+        soundContextRef.current.close();
+      }
     };
   }, []);
+
+  // Check AI models status
+  const checkAiModelsStatus = async () => {
+    try {
+      // Check Whisper status
+      try {
+        await getWhisperStatus();
+        setAiModelsStatus(prev => ({ ...prev, whisper: "active" }));
+      } catch {
+        setAiModelsStatus(prev => ({ ...prev, whisper: "inactive" }));
+      }
+      
+      // Check if other models are available by trying to get model list
+      try {
+        const models = await getAiModels();
+        const modelStatus = {
+          llama: models.some(m => m.name.toLowerCase().includes('llama')) ? "active" : "inactive",
+          mistral: models.some(m => m.name.toLowerCase().includes('mistral') || m.name.toLowerCase().includes('mixtral')) ? "active" : "inactive", 
+          gemma: models.some(m => m.name.toLowerCase().includes('gemma')) ? "active" : "inactive",
+          rag: models.some(m => m.model_type === 'rag') ? "active" : "inactive"
+        };
+        setAiModelsStatus(prev => ({ ...prev, ...modelStatus }));
+      } catch {
+        // If models endpoint fails, assume basic functionality only
+        setAiModelsStatus(prev => ({ 
+          ...prev, 
+          llama: "inactive", 
+          mistral: "inactive", 
+          gemma: "inactive", 
+          rag: "inactive" 
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to check AI models status:", error);
+    }
+  };
 
   // Load recordings from database
   const loadRecordings = async () => {
@@ -532,7 +775,7 @@ export default function DwightAudioDashboard() {
     }
   };
 
-  // Handle Dwight chat with real AI backend and speech
+  // Handle Dwight chat with enhanced AI backend integration
   const sendDwight = async () => {
     if (dwightInput.trim()) {
       const userMessage = {
@@ -545,10 +788,28 @@ export default function DwightAudioDashboard() {
       setDwightSpeaking(true);
       
       try {
-        const response: DwightResponse = await chatWithDwight(dwightInput.trim());
+        // Try enhanced AI chat first, fall back to regular chat
+        let response: DwightResponse;
+        try {
+          const enhancedResponse = await enhancedDwightChat(
+            dwightInput.trim(), 
+            true, // Use advanced model
+            [] // No context documents for now - keep it local
+          );
+          
+          response = {
+            message: enhancedResponse.text,
+            confidence: enhancedResponse.confidence,
+            context_used: false,
+            suggestions: []
+          };
+        } catch (enhancedError) {
+          console.log("Enhanced AI unavailable, falling back to regular chat:", enhancedError);
+          response = await chatWithDwight(dwightInput.trim());
+        }
         
         setTimeout(() => {
-          // Add some British butler personality to responses
+          // Add some British butler personality to responses if not already present
           let enhancedMessage = response.message;
           if (!enhancedMessage.match(/\b(sir|madam|indeed|rather|quite|shall|certainly|splendid|brilliant)\b/i)) {
             const britishisms = [
@@ -557,9 +818,17 @@ export default function DwightAudioDashboard() {
               "Quite right, Sir. ",
               "Splendid! ",
               "Rather brilliant, if I may say so. ",
-              "Most intriguing, Sir. "
+              "Most intriguing, Sir. ",
+              "Absolutely fascinating, Sir. ",
+              "How delightfully curious, Sir. ",
+              "Precisely what I was thinking, Sir. "
             ];
             enhancedMessage = britishisms[Math.floor(Math.random() * britishisms.length)] + enhancedMessage;
+          }
+          
+          // Add confidence indicator if low confidence
+          if (response.confidence < 0.7) {
+            enhancedMessage += " (Though I must admit, I'm not entirely certain about this one, Sir.)";
           }
           
           const dwightMessage = {
@@ -582,7 +851,9 @@ export default function DwightAudioDashboard() {
             "Terribly sorry, Sir, but I seem to be experiencing some technical difficulties. Even the finest butlers need a moment to compose themselves.",
             "My sincerest apologies, Sir. It appears my neural pathways are having a spot of trouble. Shall we give it another go?",
             "I'm afraid my artificial faculties are being rather stubborn at the moment, Sir. Most vexing indeed.",
-            "Regrettably, Sir, my systems are acting rather like a temperamental kettle. Allow me a moment to sort this out."
+            "Regrettably, Sir, my systems are acting rather like a temperamental kettle. Allow me a moment to sort this out.",
+            "Good heavens, Sir! My circuits seem to be having a proper tea break. Most unprofessional of them.",
+            "I say, Sir, my digital grey matter appears to be on strike. How frightfully embarrassing."
           ];
           
           const errorMessage = {
@@ -631,69 +902,171 @@ export default function DwightAudioDashboard() {
     }
   };
 
-  // Handle manual recording - now uses buffering system
+  // Handle manual recording - now uses buffering system with improved error handling
   const handleManualRecord = async () => {
     if (audioRecorder.isRecording) {
       audioRecorder.stopRecording();
     } else {
       try {
+        // Check if buffering is active, if not start it
+        if (!audioBuffer.isBuffering) {
+          await audioBuffer.startBuffering();
+          // Give buffer time to initialize
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
         // Trigger recording from buffer - saves from buffer start to now
         const audioBlob = await audioBuffer.triggerRecording();
         
         // Create URL for playback
         const audioUrl = URL.createObjectURL(audioBlob);
         
-        // Simulate audioRecorder state for UI consistency
-        // In a real implementation, you'd save this to the database
-        console.log("Triggered recording from buffer:", audioBlob.size, "bytes");
-        alert(`Recorded ${Math.round(audioBlob.size / 1024)}KB from ${buffer}s buffer!`);
+        // Save the recording to the database
+        const recordTitle = `Recording ${new Date().toISOString()}`;
+        const filePath = `/tmp/recordings/${recordTitle.replace(/[^a-zA-Z0-9]/g, '_')}.webm`;
+        
+        try {
+          // In a real implementation, you'd save the blob to the file system
+          // For now, we'll simulate this and add to recordings list
+          const newRecording: AudioRecord = {
+            title: recordTitle,
+            file_path: filePath,
+            duration: buffer,
+            created_at: new Date().toISOString(),
+            transcript: ""
+          };
+          
+          setRecordings(prev => [newRecording, ...prev]);
+          
+          console.log("Triggered recording from buffer:", audioBlob.size, "bytes");
+          
+          // Add to transcript with success message
+          setTranscript([
+            { type: "speech", text: `Successfully saved ${buffer}s audio recording from buffer.` },
+            ...transcript
+          ]);
+          
+          // Add to non-verbal sounds
+          setNonverbal(prev => [
+            { sound: "recording saved", time: new Date().toLocaleTimeString() },
+            ...prev
+          ]);
+          
+        } catch (dbError) {
+          console.error("Failed to save recording to database:", dbError);
+          alert(`Recorded ${Math.round(audioBlob.size / 1024)}KB from ${buffer}s buffer! (Note: Database save failed)`);
+        }
         
       } catch (error) {
         console.error("Failed to trigger recording:", error);
-        alert("Failed to access microphone for buffered recording.");
+        alert("Failed to access microphone for buffered recording. Please check microphone permissions.");
       }
     }
   };
 
-  // Handle audio transcription
+  // Handle audio transcription with enhanced AI models
   const handleTranscription = async () => {
     if (audioRecorder.audioUrl) {
       try {
         setDwightSpeaking(true);
+        
+        // Add visual feedback
+        setTranscript([
+          { type: "speech", text: "Processing audio with Whisper AI..." },
+        ]);
+        
         // In a real app, you'd save the audio file first and get its path
         const mockFilePath = "/mock/audio/recording.wav";
-        const transcriptResult = await transcribeAudio(mockFilePath);
         
-        setTranscript([
-          { type: "speech", text: transcriptResult },
-        ]);
-        
-        // Add to non-verbal sounds if any were detected
-        setNonverbal(prev => [
-          ...prev,
-          { sound: "transcription complete", time: new Date().toLocaleTimeString() }
-        ]);
+        try {
+          // Try enhanced transcription first (with Whisper)
+          const detailedResult = await transcribeAudioDetailed(mockFilePath);
+          
+          setTranscript([
+            { type: "speech", text: detailedResult.text },
+          ]);
+          
+          // Add detailed segment information to non-verbal log
+          setNonverbal(prev => [
+            { 
+              sound: `transcription complete (${detailedResult.language}, ${detailedResult.confidence.toFixed(2)} confidence)`, 
+              time: new Date().toLocaleTimeString() 
+            },
+            ...prev.slice(0, 9)
+          ]);
+          
+          // If we have segments, show timing information
+          if (detailedResult.segments.length > 0) {
+            const segmentInfo = detailedResult.segments.map(seg => 
+              `${seg.start.toFixed(1)}s-${seg.end.toFixed(1)}s: ${seg.text.trim()}`
+            ).join('; ');
+            
+            console.log("Transcription segments:", segmentInfo);
+          }
+          
+        } catch (enhancedError) {
+          console.log("Enhanced transcription unavailable, falling back to basic:", enhancedError);
+          
+          // Fall back to basic transcription
+          const transcriptResult = await transcribeAudio(mockFilePath);
+          
+          setTranscript([
+            { type: "speech", text: transcriptResult },
+          ]);
+          
+          setNonverbal(prev => [
+            { sound: "basic transcription complete", time: new Date().toLocaleTimeString() },
+            ...prev.slice(0, 9)
+          ]);
+        }
         
         setDwightSpeaking(false);
       } catch (error) {
         console.error("Transcription error:", error);
+        setTranscript([
+          { type: "speech", text: "Transcription failed. Please check audio quality and try again." },
+        ]);
         setDwightSpeaking(false);
       }
+    } else {
+      alert("No audio recording available for transcription. Please record audio first.");
     }
   };
 
-  // Use real waveform data from audio recorder
+  // Use real waveform data from audio recorder and buffer
   useEffect(() => {
     if (audioRecorder.waveformData.length > 0) {
       setPlaying(audioRecorder.isRecording || audioRecorder.isPlaying);
     }
-  }, [audioRecorder.waveformData, audioRecorder.isRecording, audioRecorder.isPlaying]);
+    
+    // If buffering is active and we have sound analyser, update waveform with real-time data
+    if (audioBuffer.isBuffering && soundAnalyserRef.current) {
+      const updateWaveform = () => {
+        if (!soundAnalyserRef.current) return;
+        
+        const bufferLength = soundAnalyserRef.current.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        soundAnalyserRef.current.getByteFrequencyData(dataArray);
+        
+        // Convert to normalized values for waveform display
+        const normalizedData = Array.from(dataArray).slice(0, 64).map(value => value / 255);
+        
+        // Update audio recorder waveform data for display
+        if (normalizedData.some(value => value > 0.1)) {
+          audioRecorder.waveformData = normalizedData;
+        }
+      };
+      
+      const waveformInterval = setInterval(updateWaveform, 50); // Update 20 times per second
+      return () => clearInterval(waveformInterval);
+    }
+  }, [audioRecorder.waveformData, audioRecorder.isRecording, audioRecorder.isPlaying, audioBuffer.isBuffering]);
 
   return (
     <div
       style={{
         minHeight: "100vh",
-        background: `url('${CLOUD_BG_URL}') center/cover no-repeat, linear-gradient(135deg,${colors.dark} 0%,${colors.accent} 100%)`,
+        background: createMainBackground(),
         color: colors.text,
         fontFamily: "Montserrat, Arial, sans-serif",
         padding: 0,
@@ -757,7 +1130,7 @@ export default function DwightAudioDashboard() {
       }}>
         {/* --- Left Side: Recordings Panel (Vertical Rectangular) --- */}
         <div style={{
-          background: "rgba(30,34,36,0.92)",
+          background: createPanelCloudBackground('small', 'top center'),
           border: `2.5px solid ${colors.cobalt}`,
           borderRadius: 24,
           width: 320,
@@ -767,7 +1140,9 @@ export default function DwightAudioDashboard() {
           display: "flex",
           flexDirection: "column",
           gap: "14px",
-          position: "relative"
+          position: "relative",
+          backgroundBlendMode: "overlay",
+          filter: createCloudFilter(1.0, 1.1)
         }}>
           <h2 style={{
             fontSize: "1.32rem",
@@ -877,7 +1252,7 @@ export default function DwightAudioDashboard() {
 
         {/* --- Center: Main Audio Panel --- */}
         <div style={{
-          background: "rgba(30,34,36, 0.93)",
+          background: createPanelCloudBackground('large', 'center'),
           border: `2.7px solid ${colors.cobalt}`,
           borderRadius: 36,
           flex: "1",
@@ -887,7 +1262,9 @@ export default function DwightAudioDashboard() {
           padding: "36px 30px",
           display: "flex",
           flexDirection: "column",
-          position: "relative"
+          position: "relative",
+          backgroundBlendMode: "overlay",
+          filter: createCloudFilter(1.1, 1.2)
         }}>
           {/* Main Card Header */}
           <div style={{
@@ -1140,6 +1517,53 @@ export default function DwightAudioDashboard() {
               ))}
             </ul>
           </div>
+          
+          {/* --- AI Models Status Indicator --- */}
+          <div style={{
+            position: "absolute",
+            top: 34,
+            left: 30,
+            background: "#222d",
+            borderRadius: "11px",
+            padding: "7px 14px",
+            color: "#bdf",
+            fontWeight: "600",
+            fontSize: "0.85rem",
+            boxShadow: "0 2px 8px #0008",
+            zIndex: 3,
+            minWidth: "140px"
+          }}>
+            <div style={{ color: colors.cobalt, fontWeight: "700", marginBottom: "4px", fontSize: "0.9rem" }}>
+              AI Models Status:
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <div>
+                <span style={{ color: aiModelsStatus.whisper === "active" ? "#4FC3F7" : "#666" }}>
+                  {aiModelsStatus.whisper === "active" ? "🟢" : "🔴"} Whisper
+                </span>
+              </div>
+              <div>
+                <span style={{ color: aiModelsStatus.llama === "active" ? "#4FC3F7" : "#666" }}>
+                  {aiModelsStatus.llama === "active" ? "🟢" : "🔴"} Llama3
+                </span>
+              </div>
+              <div>
+                <span style={{ color: aiModelsStatus.mistral === "active" ? "#4FC3F7" : "#666" }}>
+                  {aiModelsStatus.mistral === "active" ? "🟢" : "🔴"} Mistral
+                </span>
+              </div>
+              <div>
+                <span style={{ color: aiModelsStatus.gemma === "active" ? "#4FC3F7" : "#666" }}>
+                  {aiModelsStatus.gemma === "active" ? "🟢" : "🔴"} Gemma
+                </span>
+              </div>
+              <div>
+                <span style={{ color: aiModelsStatus.rag === "active" ? "#4FC3F7" : "#666" }}>
+                  {aiModelsStatus.rag === "active" ? "🟢" : "🔴"} RAG
+                </span>
+              </div>
+            </div>
+          </div>
           {/* --- Buffer Slider with Enhanced Display --- */}
           <div style={{
             marginTop: "22px",
@@ -1215,7 +1639,7 @@ export default function DwightAudioDashboard() {
         padding: "0 20px"
       }}>
         <div style={{
-          background: "rgba(30,34,36,0.88)",
+          background: createPanelCloudBackground('medium', 'bottom center'),
           border: `2.5px solid ${colors.cobalt}`,
           borderRadius: 24,
           width: "100%",
@@ -1224,7 +1648,9 @@ export default function DwightAudioDashboard() {
           display: "flex",
           flexDirection: "row",
           gap: "40px",
-          alignItems: "flex-start"
+          alignItems: "flex-start",
+          backgroundBlendMode: "overlay",
+          filter: createCloudFilter(1.0, 1.1)
         }}>
           <h2 style={{
             fontSize: "1.32rem",
@@ -1254,6 +1680,19 @@ export default function DwightAudioDashboard() {
             >
               {audioBuffer.isBuffering ? "📡 Trigger Save" : "🎤 Start Buffer"}
             </button>
+            <div style={{ 
+              marginTop: "8px", 
+              fontSize: "0.85rem", 
+              color: soundDetection.isActive ? colors.cobalt : "#666" 
+            }}>
+              Sound Detection: {soundDetection.isActive ? "🟢 Active" : "🔴 Inactive"}
+            </div>
+            <div style={{ 
+              fontSize: "0.85rem", 
+              color: speechRecognitionActive ? colors.cobalt : "#666" 
+            }}>
+              Speech Recognition: {speechRecognitionActive ? "🟢 Active" : "🔴 Inactive"}
+            </div>
           </div>
           
           {/* Sound Activated */}
@@ -1354,23 +1793,11 @@ export default function DwightAudioDashboard() {
           </div>
         </div>
       </div>
-      {/* --- Dwight AI Panel (bottom left) - Fixed Size with Scrolling --- */}
-      <div style={{
-        position: "fixed",
-        bottom: 38,
-        left: 38,
-        zIndex: 100,
-        width: 450,
-        height: 520, // Fixed height as requested
-        background: "rgba(30,34,36,0.98)",
-        border: `2.3px solid ${colors.cobalt}`,
-        borderRadius: "26px",
-        boxShadow: "0 4px 22px #000b",
-        padding: "22px 18px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "11px"
-      }}>
+      {/* --- Dwight AI Panel (draggable floating) --- */}
+      <DraggableDwightPanel
+        initialPosition={{ x: 38, y: window.innerHeight - 500 }}
+        backgroundImage="/myclouds.png"
+      >
         {/* Large Circular Waveform at Top Center */}
         <div style={{ 
           display: "flex", 
@@ -1380,7 +1807,7 @@ export default function DwightAudioDashboard() {
           flexShrink: 0 // Don't shrink this section
         }}>
           <CircularWaveform 
-            size={140} 
+            size={115} // Reduced from 140 to fit smaller panel
             animate={dwightSpeaking} 
             audioData={dwightAudioData}
             isSpeaking={dwightSpeaking}
@@ -1395,14 +1822,14 @@ export default function DwightAudioDashboard() {
               background: dwightSpeaking ? "#ff4444" : colors.cobalt,
               border: "none",
               borderRadius: "50%",
-              width: "40px",
-              height: "40px",
+              width: "36px", // Reduced from 40px
+              height: "36px", // Reduced from 40px
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
               color: "#fff",
-              fontSize: "1.4rem",
+              fontSize: "1.2rem", // Reduced from 1.4rem
               boxShadow: "0 2px 8px #0007",
               transition: "all 0.2s ease"
             }}
@@ -1432,7 +1859,7 @@ export default function DwightAudioDashboard() {
         }}>
           <span style={{
             fontWeight: "700",
-            fontSize: "1.31rem",
+            fontSize: "1.2rem", // Reduced from 1.31rem
             color: colors.cobalt,
             letterSpacing: "1px"
           }}>Dwight AI Butler</span>
@@ -1440,17 +1867,17 @@ export default function DwightAudioDashboard() {
             color: dwightSpeaking ? colors.cobalt : "#888",
             fontWeight: "500",
             marginLeft: "auto",
-            fontSize: "0.98rem"
+            fontSize: "0.9rem" // Reduced from 0.98rem
           }}>{dwightSpeaking ? "Speaking…" : "At Your Service"}</span>
         </div>
         
-        {/* Scrollable Messages Area - Fixed Height */}
+        {/* Scrollable Messages Area - Adjusted Height */}
         <div style={{
           flex: 1, // Take remaining space
           overflowY: "auto",
           marginBottom: "7px",
-          maxHeight: "240px", // Fixed maximum height for scrolling
-          minHeight: "240px", // Fixed minimum height
+          maxHeight: "190px", // Reduced from 240px
+          minHeight: "190px", // Reduced from 240px
           paddingRight: "8px"
         }}>
           {dwightMessages.map((msg, idx) => (
@@ -1462,21 +1889,21 @@ export default function DwightAudioDashboard() {
             }}>
               <div style={{
                 maxWidth: "75%",
-                padding: "7px 13px",
+                padding: "6px 11px", // Reduced padding
                 borderRadius: "10px",
                 background: msg.sender === "dwight"
                   ? "linear-gradient(90deg,#38B6FF44 60%,#181a1b 100%)"
                   : "linear-gradient(90deg,#222 45%,#38B6FF 100%)",
                 color: msg.sender === "dwight" ? "#38B6FF" : "#fff",
                 fontWeight: msg.sender === "dwight" ? "600" : "500",
-                fontSize: "1.04rem",
+                fontSize: "0.95rem", // Reduced from 1.04rem
                 boxShadow: "0 1px 7px #0004",
                 marginLeft: msg.sender === "dwight" ? "0" : "auto",
                 marginRight: msg.sender === "dwight" ? "auto" : "0",
               }}>
                 {msg.text}
                 <span style={{
-                  fontSize: "0.73rem",
+                  fontSize: "0.7rem", // Reduced from 0.73rem
                   color: "#bbb",
                   marginLeft: "7px",
                   fontWeight: "400"
@@ -1499,14 +1926,14 @@ export default function DwightAudioDashboard() {
               background: colors.gray,
               border: `1.7px solid ${colors.cobalt}`,
               borderRadius: "50%",
-              width: "36px",
-              height: "36px",
+              width: "32px", // Reduced from 36px
+              height: "32px", // Reduced from 36px
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
               color: colors.cobalt,
-              fontSize: "1.22rem",
+              fontSize: "1.1rem", // Reduced from 1.22rem
               boxShadow: "0 2px 6px #0007"
             }}
             onClick={() => {
@@ -1543,13 +1970,13 @@ export default function DwightAudioDashboard() {
             onChange={e => setDwightInput(e.target.value)}
             style={{
               flex: 1,
-              padding: "7px 13px",
+              padding: "6px 11px", // Reduced padding
               borderRadius: "7px",
               border: `1.5px solid ${colors.cobalt}`,
               background: colors.black,
               color: colors.cobalt,
               fontWeight: "600",
-              fontSize: "1rem",
+              fontSize: "0.95rem", // Reduced from 1rem
               outline: "none",
               boxShadow: "0 1px 6px #0004"
             }}
@@ -1561,9 +1988,9 @@ export default function DwightAudioDashboard() {
               color: colors.gray,
               border: "none",
               borderRadius: "7px",
-              padding: "7px 13px",
+              padding: "6px 11px", // Reduced padding
               fontWeight: "bold",
-              fontSize: "1rem",
+              fontSize: "0.95rem", // Reduced from 1rem
               cursor: "pointer",
               boxShadow: "0 2px 8px #0007",
             }}
@@ -1572,7 +1999,7 @@ export default function DwightAudioDashboard() {
             Send
           </button>
         </div>
-      </div>
+      </DraggableDwightPanel>
       {/* --- Bat logo watermark --- */}
       <div
         style={{

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
+import { useAudioBuffer } from "../hooks/useAudioBuffer";
 import { 
   chatWithDwight, 
   transcribeAudio, 
@@ -169,10 +170,13 @@ const CircularWaveform = ({ size = 120, animate, audioData = [], isSpeaking = fa
   );
 };
 
-// Enhanced XL Linear Waveform (main inspection panel) - High Resolution
+// Enhanced XL Linear Waveform (main inspection panel) - High Resolution with Scrubbing
 function RollingWaveform({ playing, audioData = [], isRecording = false }) {
   const [offset, setOffset] = useState(0);
   const [peaks, setPeaks] = useState(Array(512).fill(0.3)); // More detailed peaks
+  const [playheadPosition, setPlayheadPosition] = useState(50); // Percentage position
+  const [isDragging, setIsDragging] = useState(false);
+  const waveformRef = useRef<SVGSVGElement>(null);
   
   useEffect(() => {
     if (!playing && !isRecording) return;
@@ -201,6 +205,35 @@ function RollingWaveform({ playing, audioData = [], isRecording = false }) {
       setPeaks(newPeaks);
     }
   }, [audioData]);
+
+  // Handle waveform click and drag for scrubbing
+  const handleWaveformInteraction = useCallback((event: React.MouseEvent) => {
+    if (!waveformRef.current) return;
+    
+    const rect = waveformRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    
+    setPlayheadPosition(percentage);
+    
+    // In a real implementation, this would seek the audio to the new position
+    console.log(`Seeking to ${percentage.toFixed(1)}% of audio`);
+  }, []);
+
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    setIsDragging(true);
+    handleWaveformInteraction(event);
+  }, [handleWaveformInteraction]);
+
+  const handleMouseMove = useCallback((event: React.MouseEvent) => {
+    if (isDragging) {
+      handleWaveformInteraction(event);
+    }
+  }, [isDragging, handleWaveformInteraction]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
 
   // Generate realistic high-resolution waveform with many thin lines
   function generateRealisticWaveform(off = 0) {
@@ -244,9 +277,11 @@ function RollingWaveform({ playing, audioData = [], isRecording = false }) {
 
   const waveColor = isRecording ? "#4FC3F7" : colors.cobalt;
   const lines = generateRealisticWaveform(offset);
+  const playheadX = (playheadPosition / 100) * 1200;
   
   return (
     <svg
+      ref={waveformRef}
       width="100%"
       height={280}
       viewBox="0 0 1200 280"
@@ -257,7 +292,12 @@ function RollingWaveform({ playing, audioData = [], isRecording = false }) {
         marginBottom: 24,
         display: "block",
         border: isRecording ? `2px solid ${colors.cobalt}` : "none",
+        cursor: isDragging ? "grabbing" : "pointer"
       }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
     >
       <defs>
         <filter id="waveformGlow">
@@ -315,17 +355,41 @@ function RollingWaveform({ playing, audioData = [], isRecording = false }) {
         />
       )}
       
-      {/* Playback position indicator - draggable */}
-      <circle
-        cx="50%"
-        cy="140"
-        r="8"
-        fill={colors.cobalt}
-        stroke="#fff"
-        strokeWidth="2"
-        opacity="0.9"
-        style={{ cursor: "pointer" }}
-      />
+      {/* Draggable Playhead Position Indicator */}
+      <g>
+        <line
+          x1={playheadX}
+          y1="20"
+          x2={playheadX}
+          y2="260"
+          stroke="#ffaa00"
+          strokeWidth="3"
+          opacity="0.9"
+        />
+        <circle
+          cx={playheadX}
+          cy="140"
+          r="8"
+          fill="#ffaa00"
+          stroke="#fff"
+          strokeWidth="2"
+          opacity="0.95"
+          style={{ 
+            cursor: "grab",
+            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))"
+          }}
+        />
+        <text
+          x={playheadX}
+          y="35"
+          textAnchor="middle"
+          fill="#ffaa00"
+          fontSize="12"
+          fontWeight="bold"
+        >
+          {playheadPosition.toFixed(1)}%
+        </text>
+      </g>
     </svg>
   );
 }
@@ -333,6 +397,9 @@ function RollingWaveform({ playing, audioData = [], isRecording = false }) {
 export default function DwightAudioDashboard() {
   // Audio recording functionality
   const audioRecorder = useAudioRecorder();
+  
+  // Audio buffering system (30-300 seconds continuous recording)
+  const audioBuffer = useAudioBuffer(30);
   
   // Audio controls
   const [playing, setPlaying] = useState(false);
@@ -358,11 +425,11 @@ export default function DwightAudioDashboard() {
   
   // Transcription & non-verbal
   const [transcript, setTranscript] = useState([
-    { type: "speech", text: "Audio systems primed and ready for inspection, Sir." },
-    { type: "speech", text: "Dwight AI butler services now online." },
+    { type: "speech", text: "Continuous audio buffering system active, Sir." },
+    { type: "speech", text: "Dwight AI butler monitoring all frequencies." },
   ]);
   const [nonverbal, setNonverbal] = useState([
-    { sound: "system ready", time: "00:00" },
+    { sound: "buffer system ready", time: "00:00" },
   ]);
   
   // Database-driven data
@@ -426,10 +493,20 @@ export default function DwightAudioDashboard() {
     }
   }, []);
 
-  // Load data from backend on component mount
+  // Load data from backend and start buffering on component mount
   useEffect(() => {
     loadRecordings();
     loadTriggers();
+    
+    // Start continuous buffering as requested - always recording, just forgetting old data
+    audioBuffer.startBuffering().catch(error => {
+      console.error("Failed to start audio buffering:", error);
+    });
+    
+    return () => {
+      // Cleanup buffering on unmount
+      audioBuffer.stopBuffering();
+    };
   }, []);
 
   // Load recordings from database
@@ -554,12 +631,27 @@ export default function DwightAudioDashboard() {
     }
   };
 
-  // Handle manual recording
-  const handleManualRecord = () => {
+  // Handle manual recording - now uses buffering system
+  const handleManualRecord = async () => {
     if (audioRecorder.isRecording) {
       audioRecorder.stopRecording();
     } else {
-      audioRecorder.startRecording();
+      try {
+        // Trigger recording from buffer - saves from buffer start to now
+        const audioBlob = await audioBuffer.triggerRecording();
+        
+        // Create URL for playback
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        // Simulate audioRecorder state for UI consistency
+        // In a real implementation, you'd save this to the database
+        console.log("Triggered recording from buffer:", audioBlob.size, "bytes");
+        alert(`Recorded ${Math.round(audioBlob.size / 1024)}KB from ${buffer}s buffer!`);
+        
+      } catch (error) {
+        console.error("Failed to trigger recording:", error);
+        alert("Failed to access microphone for buffered recording.");
+      }
     }
   };
 
@@ -611,6 +703,14 @@ export default function DwightAudioDashboard() {
         overflow: "hidden",
       }}
     >
+      {/* Add CSS for buffer indicator animation */}
+      <style>{`
+        @keyframes pulse {
+          0% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.1); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
       {/* Header */}
       <div style={{
         width: "100%",
@@ -1040,7 +1140,7 @@ export default function DwightAudioDashboard() {
               ))}
             </ul>
           </div>
-          {/* --- Buffer Slider --- */}
+          {/* --- Buffer Slider with Enhanced Display --- */}
           <div style={{
             marginTop: "22px",
             display: "flex",
@@ -1059,7 +1159,11 @@ export default function DwightAudioDashboard() {
               min={30}
               max={300}
               value={buffer}
-              onChange={e => setBuffer(Number(e.target.value))}
+              onChange={e => {
+                const newBuffer = Number(e.target.value);
+                setBuffer(newBuffer);
+                audioBuffer.updateBufferSize(newBuffer);
+              }}
               style={{
                 width: "180px",
                 accentColor: colors.cobalt,
@@ -1072,6 +1176,33 @@ export default function DwightAudioDashboard() {
               fontSize: "1.17rem",
               marginLeft: "7px"
             }}>{buffer}s</span>
+            
+            {/* Buffer Status Indicator */}
+            <div style={{
+              marginLeft: "20px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}>
+              <div style={{
+                width: "12px",
+                height: "12px",
+                borderRadius: "50%",
+                backgroundColor: audioBuffer.isBuffering ? "#4FC3F7" : "#666",
+                boxShadow: audioBuffer.isBuffering ? "0 0 8px #4FC3F7" : "none",
+                animation: audioBuffer.isBuffering ? "pulse 2s infinite" : "none"
+              }}></div>
+              <span style={{
+                color: audioBuffer.isBuffering ? colors.cobalt : "#666",
+                fontWeight: "600",
+                fontSize: "0.95rem"
+              }}>
+                {audioBuffer.isBuffering ? 
+                  `Buffering ${Math.round(audioBuffer.getBufferFill())}%` : 
+                  "Buffer Offline"
+                }
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1109,8 +1240,8 @@ export default function DwightAudioDashboard() {
             <b style={{ color: "#bdf", display: "block", marginBottom: "8px" }}>Manual Trigger:</b>
             <button
               style={{
-                background: audioRecorder.isRecording ? "#ff4444" : colors.cobalt,
-                color: audioRecorder.isRecording ? "#fff" : colors.gray,
+                background: audioBuffer.isBuffering ? "#ff4444" : colors.cobalt,
+                color: "#fff",
                 border: "none",
                 borderRadius: "9px",
                 padding: "10px 20px",
@@ -1121,7 +1252,7 @@ export default function DwightAudioDashboard() {
               }}
               onClick={handleManualRecord}
             >
-              {audioRecorder.isRecording ? "🔴 Stop Recording" : "🎤 Record Now"}
+              {audioBuffer.isBuffering ? "📡 Trigger Save" : "🎤 Start Buffer"}
             </button>
           </div>
           
